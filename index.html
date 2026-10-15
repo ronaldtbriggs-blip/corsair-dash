@@ -524,7 +524,7 @@
       }
     };
 
-    // Populate Title Screen High Score summary on load
+    // Populate Title Screen High Score summary & render live harbor backdrop on load
     window.addEventListener('DOMContentLoaded', () => {
       try {
         const hi = parseInt(localStorage.getItem('corsairdash_highscore') || '0', 10) || 0;
@@ -535,7 +535,13 @@
         if (achLabel && window.CORSAIR_DATA && window.CORSAIR_DATA.achievementsCatalog) {
           achLabel.innerText = `🎖️ ${unlocked.length} / ${window.CORSAIR_DATA.achievementsCatalog.length} Maritime Achievements Unlocked`;
         }
-      } catch (e) {}
+        if (!window.game) {
+          window.game = new GameEngine();
+          window.game.render();
+        }
+      } catch (e) {
+        console.error('Startup init error:', e);
+      }
     });
 
     function startGame() {

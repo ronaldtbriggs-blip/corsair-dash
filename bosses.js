@@ -21,8 +21,12 @@ class BossMonsterEventManager {
     }
 
     // If no specific bossId was requested, prioritize bosses not yet slain in the current 7-boss cycle!
-    if (!template && gameEngine && Array.isArray(gameEngine.slainBossIdsInCycle)) {
-      const remaining = this.catalog.filter(b => !gameEngine.slainBossIdsInCycle.includes(b.id));
+    if (!template && gameEngine && gameEngine.slainBossIdsInCycle) {
+      const hasSlain = (id) =>
+        gameEngine.slainBossIdsInCycle instanceof Set
+          ? gameEngine.slainBossIdsInCycle.has(id)
+          : Array.isArray(gameEngine.slainBossIdsInCycle) && gameEngine.slainBossIdsInCycle.includes(id);
+      const remaining = this.catalog.filter(b => !hasSlain(b.id));
       const pool = remaining.length > 0 ? remaining : this.catalog;
       template = pool[Math.floor(Math.random() * pool.length)];
     } else if (!template) {
@@ -115,14 +119,14 @@ class BossMonsterEventManager {
     // Burn DoT from Hellfire / Wildfire loadout modules
     if (b.burnTimer > 0) {
       b.burnTimer = Math.max(0, b.burnTimer - dt);
-      b.hp -= (b.burnDps || 15) * dt;
+      b.hp -= (b.burnDps || b.burnDPS || 15) * dt;
     }
 
     // Slow debuff from Chain-Shot Dismasting Rig
     let slowFactor = 1.0;
     if (b.slowTimer > 0) {
       b.slowTimer = Math.max(0, b.slowTimer - dt);
-      slowFactor = Math.max(0.45, 1.0 - (b.slowAmount || 0.25));
+      slowFactor = Math.max(0.45, 1.0 - (b.slowAmount || b.slowFactor || 0.25));
     }
 
     // Recycled Boss Regeneration (Cycle III+)

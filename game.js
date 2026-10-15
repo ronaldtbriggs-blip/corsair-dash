@@ -41,8 +41,8 @@ class GameEngine {
 
     // 7-Boss Gauntlet & Endless Cycle State
     this.bossCycle = 1;
-    this.slainBossIdsInCycle = [];
-    this.elderTrioVictoryShown = false;
+    this.slainBossIdsInCycle = new Set();
+    this.victoryTriggeredThisRun = false;
 
     // Player Ship Physics & Combat State (Spawns at Port Royal Haven dock)
     this.player = {
@@ -68,21 +68,31 @@ class GameEngine {
       swivelFireRateMult: 1.0,
       swivelTimer: 0,
       pointDefense: 0,
+      pointDefenseChance: 0,
       pointDefenseTimer: 0,
       mortarGuns: 0,
+      mortarCount: 0,
       mortarDamage: 0,
+      mortarCooldown: 3.5,
+      mortarSplashRadius: 68,
       mortarTimer: 0,
       chainLightning: 0,
+      chainLightningChance: 0,
       burnDamage: 0,
+      hellfireDPS: 0,
       slowEffect: 0,
+      slowOnHit: 0,
       thornsReflect: 0,
       ramDamage: 0,
       whirlpoolResist: 0,
       fireBarrelsCount: 0,
       barrelDamageBonus: 0,
+      barrelDamage: 95,
       barrelAutoDrop: 0,
-      barrelAutoTimer: 0,
+      autoDropBarrelInterval: 0,
+      autoBarrelTimer: 0,
       barrelMagnet: 0,
+      magneticBarrels: false,
       barrelCooldown: 0,
       magnetRadius: 0,
       salvageGoldBonus: 0,
@@ -92,6 +102,7 @@ class GameEngine {
       scoreBonus: 0,
       regenPerSec: 0,
       damageReduction: 0,
+      stormArmor: 0,
       windEfficiency: 0,
       reefProtection: 0,
       unarmedSmugglerBonus: true,
@@ -151,6 +162,7 @@ class GameEngine {
     let savedHigh = 0;
     let savedDiffHigh = { easy: 0, medium: 0, hard: 0 };
     let savedBossCounts = {};
+    let savedSlainBosses = [];
     let savedAchievements = [];
     let savedHighestCycle = 1;
     try {
@@ -159,12 +171,15 @@ class GameEngine {
       if (dh && typeof dh === 'object') savedDiffHigh = { easy: dh.easy || 0, medium: dh.medium || 0, hard: dh.hard || 0 };
       const bc = JSON.parse(localStorage.getItem('corsairdash_boss_counts') || '{}');
       if (bc && typeof bc === 'object') savedBossCounts = bc;
+      const sb = JSON.parse(localStorage.getItem('corsairdash_slain_bosses') || '[]');
+      if (Array.isArray(sb)) savedSlainBosses = sb;
       const ach = JSON.parse(localStorage.getItem('corsairdash_achievements') || '[]');
       if (Array.isArray(ach)) savedAchievements = ach;
-      savedHighestCycle = parseInt(localStorage.getItem('corsairdash_highest_cycle') || '1', 10) || 1;
+      savedHighestCycle = parseInt(localStorage.getItem('corsairdash_best_cycle') || localStorage.getItem('corsairdash_highest_cycle') || '1', 10) || 1;
     } catch (e) {}
 
-    this.unlockedAchievements = savedAchievements;
+    this.unlockedAchievements = new Set(savedAchievements);
+    this.allTimeSlainBossIds = new Set(savedSlainBosses);
     this.slainBossCounts = savedBossCounts;
     this.highScoreByDiff = savedDiffHigh;
     this.highestBossCycle = savedHighestCycle;
@@ -179,6 +194,7 @@ class GameEngine {
       piratesSunk: 0,
       bossesSlain: 0,
       bossesOutrun: 0,
+      maxTierReached: 1,
       reputation: 5.00,
       voyageSeconds: 0
     };
@@ -194,8 +210,8 @@ class GameEngine {
     this.activeWheelTouchId = null;
     this.boundaryAlertCooldown = 0;
 
-    this.rerollRarityMarket(true);
     this.recalculateShipStats();
+    this.rerollRarityMarket(true);
     this.setupInput();
     this.initTouchControls();
     this.initMobileExitProtection();
@@ -234,7 +250,7 @@ class GameEngine {
       } else if (val > 0) {
         effects[k] = Number((val * mult).toFixed(3));
       } else {
-        effects[k] = val; // Negative penalties (like cargo -2% speed) handled by rarityPerks
+        effects[k] = val;
       }
     }
 
@@ -275,8 +291,10 @@ class GameEngine {
       icon: baseMod.icon,
       category: baseMod.category,
       rarity: rar.id,
+      rarityName: rar.name || rar.id.toUpperCase(),
       rarityBadge: rar.badge,
       rarityColor: rar.color,
+      statMult: mult,
       cost,
       shortStat: statParts.length > 0 ? statParts.join(' • ') : baseMod.shortStat,
       description: baseMod.description,
@@ -318,7 +336,6 @@ class GameEngine {
     this.rarityMarketOffers = [];
     for (let i = 0; i < 6; i++) {
       const baseMod = this.loadoutCatalog[Math.floor(Math.random() * this.loadoutCatalog.length)];
-      // Guarantee at least 1 Rare+ and if freeRoll from cheat studio, boost Epic/Legendary
       let rarId = pickRarity();
       if (i === 0 && rarId === 'uncommon') rarId = 'rare';
       this.rarityMarketOffers.push(this.createModuleInstance(baseMod, rarId));
@@ -440,18 +457,28 @@ class GameEngine {
     this.player.swivelGuns = swivelGuns;
     this.player.swivelFireRateMult = swivelFireRateMult;
     this.player.pointDefense = pointDefense;
+    this.player.pointDefenseChance = pointDefense > 0 ? Math.min(0.65, pointDefense * 0.35) : 0;
     this.player.mortarGuns = mortarGuns;
-    this.player.mortarDamage = mortarDamage;
+    this.player.mortarCount = mortarGuns;
+    this.player.mortarDamage = mortarDamage || 85;
+    this.player.mortarCooldown = Math.max(1.4, 3.8 / Math.max(1, mortarGuns));
+    this.player.mortarSplashRadius = 68 + mortarGuns * 12;
     this.player.chainLightning = chainLightning;
+    this.player.chainLightningChance = chainLightning > 0 ? Math.min(0.75, chainLightning * 0.35) : 0;
     this.player.burnDamage = burnDamage;
+    this.player.hellfireDPS = burnDamage;
     this.player.slowEffect = slowEffect;
+    this.player.slowOnHit = slowEffect;
     this.player.thornsReflect = thornsReflect;
     this.player.ramDamage = ramDamage;
     this.player.whirlpoolResist = whirlpoolResist;
     this.player.fireBarrelsCount = fireBarrels;
     this.player.barrelDamageBonus = barrelDamageBonus;
+    this.player.barrelDamage = 85 + barrelDamageBonus;
     this.player.barrelAutoDrop = barrelAutoDrop;
+    this.player.autoDropBarrelInterval = barrelAutoDrop > 0 ? Math.max(2.0, 6.0 / barrelAutoDrop) : 0;
     this.player.barrelMagnet = barrelMagnet;
+    this.player.magneticBarrels = barrelMagnet > 0;
     this.player.magnetRadius = magnetRadius;
     this.player.salvageGoldBonus = salvageGoldBonus;
     this.player.chestHeal = chestHeal;
@@ -836,14 +863,14 @@ class GameEngine {
     if (p.swivelGuns <= 0) return;
 
     // Legendary Swivel Point-Defense: intercept nearby enemy cannonballs!
-    if ((p.pointDefenseChance || 0) > 0 && this.pirateManager && this.pirateManager.cannonballs) {
-      for (let i = this.pirateManager.cannonballs.length - 1; i >= 0; i--) {
-        const cb = this.pirateManager.cannonballs[i];
+    if ((p.pointDefenseChance || 0) > 0 && this.pirateManager && this.pirateManager.enemyProjectiles) {
+      for (let i = this.pirateManager.enemyProjectiles.length - 1; i >= 0; i--) {
+        const cb = this.pirateManager.enemyProjectiles[i];
         if (!cb._pdChecked && Math.hypot(cb.x - p.x, cb.y - p.y) < 95) {
           cb._pdChecked = true;
           if (Math.random() < p.pointDefenseChance) {
             this.spawnMuzzleSmoke(cb.x, cb.y);
-            this.pirateManager.cannonballs.splice(i, 1);
+            this.pirateManager.enemyProjectiles.splice(i, 1);
           }
         }
       }
@@ -1636,6 +1663,10 @@ class GameEngine {
       );
     }
 
+    if (this.bossCycle >= 2 || (boss.cycle && boss.cycle >= 2)) {
+      this.unlockAchievement('ascended_boss_kill');
+    }
+
     // Refresh Rarity Market with high-tier loot after slaying a Boss!
     this.rerollRarityMarket(true);
     this.checkAchievements();
@@ -1685,34 +1716,42 @@ class GameEngine {
     if (!modal) return;
     modal.style.display = 'flex';
 
-    const titleEl = document.getElementById('victory-title');
-    const descEl = document.getElementById('victory-desc');
-    const statsEl = document.getElementById('victory-stats-box');
+    const titleEl = document.getElementById('victory-modal-title') || document.getElementById('victory-title');
+    const subEl = document.getElementById('victory-modal-subtitle');
+    const bodyEl = document.getElementById('victory-modal-body') || document.getElementById('victory-desc');
 
     const mutators = this.data.bossCycleMutators || [];
     const nextMut = mutators[Math.min(this.bossCycle - 1, mutators.length - 1)] || {
-      badge: `🔥 CYCLE ${this.bossCycle} ASCENDED`,
-      perkDesc: 'Recycled Bosses gain massive HP, Speed & Frenzy!'
+      prefix: `CYCLE ${this.bossCycle} ASCENDED`,
+      buffLabel: 'Recycled Bosses gain massive HP, Speed & Frenzy!'
     };
+    const mutLabel = nextMut.prefix || nextMut.badge || `CYCLE ${this.bossCycle}`;
+    const mutDesc = nextMut.buffLabel || nextMut.perkDesc || 'Increased Boss HP, Speed & Volley Fire!';
 
     if (titleEl) {
       titleEl.innerText = fullSevenCleared
         ? `👑 CYCLE ${completedCycle} CONQUERED — ALL 7 SOVEREIGN BOSSES SLAIN! 👑`
         : `👑 CAMPAIGN VICTORY — ELDER TITANS CONQUERED! 👑`;
     }
-    if (descEl) {
-      descEl.innerHTML = fullSevenCleared
-        ? `You have vanquished all <strong>7 Legendary Terrors of the Archipelago</strong> in Cycle ${completedCycle}! The seas now enter <strong>ENDLESS CYCLE ${this.bossCycle} (${nextMut.badge})</strong>: all 7 bosses recycle with <em>${nextMut.perkDesc}</em> and pirate swarm density accelerates further!`
-        : `You have slain the <strong>Elder Archipelago Titans</strong> (Karkinos, Charybdis & the El Dorado Solar Armada)! You have won the campaign — keep sailing to finish all 7 bosses and enter <strong>Endless Cycle II+</strong> where bosses recycle with ferocious new buffs!`;
+    if (subEl) {
+      subEl.innerText = fullSevenCleared
+        ? `ENTERING ENDLESS CYCLE ${this.bossCycle}: ${mutLabel}`
+        : `ELDER ARCHIPELAGO TITANS VANQUISHED!`;
     }
-    if (statsEl) {
+    if (bodyEl) {
       const tier = this.shipTiers[this.currentTierIndex];
-      statsEl.innerHTML = `
-        <div style="font-family:'Press Start 2P', monospace; font-size:11px; color:#fde047; margin-bottom:6px;">
-          🏆 SCORE: ${this.stats.score.toLocaleString()} • 👑 HIGH SCORE: ${this.stats.highScore.toLocaleString()}
-        </div>
-        <div style="font-size:12px; color:#e2e8f0;">
-          🚢 Vessel: <strong>Lv.${tier ? tier.level : 1} ${tier ? tier.name : 'Sloop'}</strong> • 💀 Total Bosses Slain: <strong>${this.stats.bossesSlain}</strong> • 🏴‍☠️ Pirates Sunk: <strong>${this.stats.piratesSunk}</strong>
+      const msgHtml = fullSevenCleared
+        ? `You have vanquished all <strong>7 Legendary Terrors of the Archipelago</strong> in Cycle ${completedCycle}! The seas now enter <strong>ENDLESS CYCLE ${this.bossCycle} (${mutLabel})</strong>: all 7 bosses recycle with <em>${mutDesc}</em> and pirate swarm density accelerates further!`
+        : `You have slain the <strong>Elder Archipelago Titans</strong> (Karkinos, Charybdis & the El Dorado Solar Armada)! You have won the campaign — keep sailing to finish all 7 bosses and enter <strong>Endless Cycle II+</strong> where bosses recycle with ferocious new buffs!`;
+      bodyEl.innerHTML = `
+        <div style="margin-bottom: 10px;">${msgHtml}</div>
+        <div style="background:#0f172a; border:1px solid #eab308; border-radius:8px; padding:10px;">
+          <div style="font-family:'Press Start 2P', monospace; font-size:10px; color:#fde047; margin-bottom:6px;">
+            🏆 SCORE: ${this.stats.score.toLocaleString()} • 👑 HIGH SCORE: ${this.stats.highScore.toLocaleString()}
+          </div>
+          <div style="font-size:12px; color:#e2e8f0;">
+            🚢 Vessel: <strong>Lv.${tier ? tier.level : 1} ${tier ? tier.name : 'Sloop'}</strong> • 💀 Total Bosses Slain: <strong>${this.stats.bossesSlain}</strong> • 🏴‍☠️ Pirates Sunk: <strong>${this.stats.piratesSunk}</strong>
+          </div>
         </div>
       `;
     }
@@ -1763,7 +1802,7 @@ class GameEngine {
 
     if (titleEl) titleEl.innerText = `${b.name} (BOUNTY: +${b.bountyGold.toLocaleString()}G)`;
     if (hpFill) hpFill.style.width = `${hpPct}%`;
-    if (metaEl) metaEl.innerText = `HP: ${Math.ceil(b.hp).toLocaleString()}/${b.maxHp.toLocaleString()} • OUTRUN: ${dist}/${esc}m ${b.perkDesc ? '• ' + b.perkDesc : ''}`;
+    if (metaEl) metaEl.innerText = `HP: ${Math.ceil(b.hp).toLocaleString()}/${b.maxHp.toLocaleString()} • OUTRUN: ${dist}/${esc}m ${b.buffLabel ? '• ' + b.buffLabel : ''}`;
   }
 
   // --- Achievements & High Score Hall of Fame System ---
@@ -1779,11 +1818,18 @@ class GameEngine {
       localStorage.setItem('corsairdash_achievements', JSON.stringify(Array.from(this.unlockedAchievements)));
     } catch (e) {}
 
+    if (ach.rewardGold) {
+      this.stats.gold += ach.rewardGold;
+    }
+    if (ach.rewardScore) {
+      this.addScore(ach.rewardScore, `ACHIEVEMENT: ${ach.title}`);
+    }
+
     if (window.audioManager) window.audioManager.playDoubloonChime();
     this.floatingTexts.push({
       x: this.player.x,
       y: this.player.y - 48,
-      text: `🏆 ACHIEVEMENT: ${ach.title.toUpperCase()}!`,
+      text: `🏆 ACHIEVEMENT: ${ach.title.toUpperCase()} (+${ach.rewardGold || 0}G)!`,
       color: '#fbbf24',
       life: 2.8
     });
@@ -1791,31 +1837,45 @@ class GameEngine {
 
   checkAchievements() {
     if (this.stats.deliveries >= 1) this.unlockAchievement('first_delivery');
-    if (this.stats.cratesHauled >= 100) this.unlockAchievement('cargo_tycoon');
-    if (this.stats.piratesSunk >= 10) this.unlockAchievement('pirate_hunter');
-    if (this.stats.piratesSunk >= 50) this.unlockAchievement('scourge_of_pirates');
-    if (this.stats.gold >= 10000) this.unlockAchievement('gold_hoarder');
-    if ((this.stats.maxTierReached || 1) >= 6) this.unlockAchievement('man_o_war');
-    if ((this.stats.maxTierReached || 1) >= 10) this.unlockAchievement('celestial_ark');
-    if (this.equippedModules.length >= 20) this.unlockAchievement('all_slots_20');
-    if (this.equippedModules.some(e => typeof e === 'object' && e && e.rarity === 'legendary')) {
-      this.unlockAchievement('legendary_mod');
+    if (
+      this.stats.deliveries >= 3 &&
+      (this.player.cannons || 0) === 0 &&
+      (this.player.autoTurrets || 0) === 0 &&
+      !this.player.mortarUnlocked
+    ) {
+      this.unlockAchievement('pacifist_smuggler');
     }
-    if (this.stats.bossesSlain >= 1) this.unlockAchievement('first_boss');
+    if (this.stats.cratesHauled >= 50) this.unlockAchievement('merchant_prince');
+    if (this.stats.piratesSunk >= 15) this.unlockAchievement('pirate_hunter_15');
+    if (this.stats.piratesSunk >= 50) this.unlockAchievement('pirate_hunter_50');
+
+    if (this.allTimeSlainBossIds.has('kraken')) this.unlockAchievement('slay_kraken');
+    if (this.allTimeSlainBossIds.has('dutchman')) this.unlockAchievement('slay_dutchman');
+    if (this.allTimeSlainBossIds.has('megalodon')) this.unlockAchievement('slay_megalodon');
+    if (this.allTimeSlainBossIds.has('leviathan')) this.unlockAchievement('slay_leviathan');
+    if (this.allTimeSlainBossIds.has('karkinos')) this.unlockAchievement('slay_karkinos');
+    if (this.allTimeSlainBossIds.has('charybdis')) this.unlockAchievement('slay_charybdis');
+    if (this.allTimeSlainBossIds.has('armada_flagship')) this.unlockAchievement('slay_armada');
+
     if (
       this.allTimeSlainBossIds.has('karkinos') &&
       this.allTimeSlainBossIds.has('charybdis') &&
       this.allTimeSlainBossIds.has('armada_flagship')
     ) {
-      this.unlockAchievement('elder_trio');
+      this.unlockAchievement('elder_trio_win');
     }
     if (this.allTimeSlainBossIds.size >= 7) {
-      this.unlockAchievement('seven_seas_victor');
+      this.unlockAchievement('all_seven_bosses');
     }
-    if (this.bossCycle >= 2) this.unlockAchievement('cycle_2_ascended');
-    if (this.bossCycle >= 3) this.unlockAchievement('cycle_3_elder');
-    if (this.stats.highScore >= 100000 || this.stats.score >= 100000) this.unlockAchievement('high_roller_100k');
-    if (this.stats.highScore >= 500000 || this.stats.score >= 500000) this.unlockAchievement('high_roller_500k');
+    if (this.bossCycle >= 2 && this.stats.bossesSlain > 7) {
+      this.unlockAchievement('ascended_boss_kill');
+    }
+    if (this.equippedModules.some(e => typeof e === 'object' && e && e.rarity === 'legendary')) {
+      this.unlockAchievement('legendary_loadout');
+    }
+    if ((this.stats.maxTierReached || 1) >= 10 || this.currentTierIndex >= 9) {
+      this.unlockAchievement('tier_10_ark');
+    }
   }
 
   toggleAchievementsModal(open) {
@@ -1833,12 +1893,21 @@ class GameEngine {
   }
 
   renderAchievementsModalUI() {
-    const summaryEl = document.getElementById('achievements-highscore-summary');
-    const bossGridEl = document.getElementById('achievements-boss-checklist');
-    const achGridEl = document.getElementById('achievements-grid');
+    const summaryEl = document.getElementById('achievements-highscore-banner') || document.getElementById('achievements-highscore-summary');
+    const bossCycleLabel = document.getElementById('boss-cycle-badge-label');
+    const bossGridEl = document.getElementById('boss-checklist-grid') || document.getElementById('achievements-boss-checklist');
+    const achCountLabel = document.getElementById('achievements-count-label');
+    const achGridEl = document.getElementById('achievements-list-grid') || document.getElementById('achievements-grid');
 
     const catalog = this.data.achievementsCatalog || [];
     const bosses = this.data.bossMonsters || [];
+
+    if (bossCycleLabel) {
+      bossCycleLabel.innerText = `CYCLE ${this.bossCycle} (${this.slainBossIdsInCycle.size}/${bosses.length} SLAIN)`;
+    }
+    if (achCountLabel) {
+      achCountLabel.innerText = `${this.unlockedAchievements.size} / ${catalog.length} UNLOCKED`;
+    }
 
     if (summaryEl) {
       summaryEl.innerHTML = `
@@ -1858,8 +1927,8 @@ class GameEngine {
         return `
           <div class="boss-check-card ${slainThisCycle ? 'slain-cycle' : (slainEver ? 'slain-ever' : 'unslain')}">
             <div class="boss-check-num">#${idx + 1} ${slainThisCycle ? '✅ SLAIN (CYCLE ' + this.bossCycle + ')' : (slainEver ? '🏆 SLAIN (PAST CYCLE)' : '⚔️ UNTAMED')}</div>
-            <div class="boss-check-name">${b.name}</div>
-            <div class="boss-check-meta">${b.subtitle} • +${b.bountyGold.toLocaleString()}g</div>
+            <div class="boss-check-name">${b.icon || '💀'} ${b.name}</div>
+            <div class="boss-check-meta">${b.title || b.subtitle || 'Sovereign Boss'} • +${b.bountyGold.toLocaleString()}g</div>
           </div>
         `;
       }).join('');
@@ -1875,7 +1944,7 @@ class GameEngine {
               <div class="ach-title">${ach.title}</div>
               <div class="ach-desc">${ach.desc}</div>
             </div>
-            <div class="ach-badge">${unlocked ? '✅ UNLOCKED' : 'LOCKED'}</div>
+            <div class="ach-badge">${unlocked ? '✅ UNLOCKED' : `+${ach.rewardGold || 0}G`}</div>
           </div>
         `;
       }).join('');
@@ -2503,6 +2572,11 @@ class GameEngine {
 
     const highEl = document.getElementById('today-highscore');
     if (highEl) highEl.innerText = `👑 HI: ${this.stats.highScore.toLocaleString()}`;
+
+    const bossCycleHud = document.getElementById('boss-cycle-hud');
+    if (bossCycleHud) {
+      bossCycleHud.innerText = `💀 ${this.slainBossIdsInCycle.size}/7 (C${this.bossCycle})`;
+    }
 
     const windEl = document.getElementById('weather-status');
     if (windEl) {
@@ -3233,6 +3307,8 @@ class GameEngine {
   }
 
   start() {
+    if (this._started) return;
+    this._started = true;
     this.updatePhoneUI();
     this.updateGaugesUI();
     requestAnimationFrame((t) => this.loop(t));

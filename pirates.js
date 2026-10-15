@@ -15,16 +15,27 @@ class PirateAndTradeManager {
     this.tradeSpawnTimer = 0;
   }
 
-  getActivePirateCap(difficultyProfile, voyageSeconds, modMultiplier = 1.0, bossCycle = 1, bossesSlain = 0) {
+  getActivePirateCap(difficultyProfile, voyageSeconds, modMultiplier = 1.0, bossCycleOrGame = 1, bossesSlain = 0) {
+    let bossCycle = 1;
+    let slainCount = bossesSlain || 0;
+    if (typeof bossCycleOrGame === 'object' && bossCycleOrGame !== null) {
+      bossCycle = bossCycleOrGame.bossCycle || 1;
+      slainCount = (bossCycleOrGame.stats && bossCycleOrGame.stats.bossesSlain) || 0;
+    } else if (typeof bossCycleOrGame === 'number') {
+      bossCycle = bossCycleOrGame;
+    }
     const cycleBonus = Math.max(0, bossCycle - 1);
-    const base = (difficultyProfile.initialMaxPirates || 8) + cycleBonus * 5 + Math.floor(bossesSlain * 0.6);
+    const base = (difficultyProfile.initialMaxPirates || 8) + cycleBonus * 5 + Math.floor(slainCount * 0.6);
     const rate = (difficultyProfile.escalationRatePerMin || 3.0) * (1 + cycleBonus * 0.32);
-    const cap = (difficultyProfile.absoluteMaxPirates || 28) + cycleBonus * 10 + Math.min(14, bossesSlain);
+    const cap = (difficultyProfile.absoluteMaxPirates || 28) + cycleBonus * 10 + Math.min(14, slainCount);
     const escalated = base + (voyageSeconds / 60) * rate;
     return Math.round(Math.min(cap, escalated) * modMultiplier);
   }
 
-  spawnPirate(playerX, playerY, difficultyProfile, voyageSeconds, forceNearPlayer = false, bossCycle = 1) {
+  spawnPirate(playerX, playerY, difficultyProfile, voyageSeconds, forceNearPlayer = false, bossCycleOrGame = 1) {
+    const bossCycle = (typeof bossCycleOrGame === 'object' && bossCycleOrGame !== null)
+      ? (bossCycleOrGame.bossCycle || 1)
+      : (Number(bossCycleOrGame) || 1);
     // Spawn on a ring 850 to 2,100 units around the player (avoiding island interiors)
     let sx = playerX;
     let sy = playerY;
@@ -311,14 +322,14 @@ class PirateAndTradeManager {
     // Burn DoT from Hellfire Cannon / Wildfire Mortar
     if (p.burnTimer > 0) {
       p.burnTimer = Math.max(0, p.burnTimer - dt);
-      p.hp -= (p.burnDps || 15) * dt;
+      p.hp -= (p.burnDps || p.burnDPS || 15) * dt;
     }
 
     // Slow debuff from Chain-Shot Dismasting Rig
     let slowMult = 1.0;
     if (p.slowTimer > 0) {
       p.slowTimer = Math.max(0, p.slowTimer - dt);
-      slowMult = Math.max(0.30, 1.0 - (p.slowAmount || 0.30));
+      slowMult = Math.max(0.30, 1.0 - (p.slowAmount || p.slowFactor || 0.30));
     }
 
     const dx = player.x - p.x;
