@@ -1,0 +1,19 @@
+{
+  "projects": {
+    "default": "operant-hills",
+    "prod": "operant-hills",
+    "dev": "operant-hills"
+  },
+  "targets": {
+    "operant-hills": {
+      "hosting": {
+        "prod": [
+          "corsairdash"
+        ],
+        "dev": [
+          "corsairdash-dev"
+        ]
+      }
+    }
+  }
+}

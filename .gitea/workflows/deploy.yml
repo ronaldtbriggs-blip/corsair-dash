@@ -1,0 +1,52 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  release:
+    types: [published]
+
+env:
+  IMAGE: corsairdash
+  CONTAINER: corsairdash
+  HOST_PORT: "8089"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build \
+            -t "$IMAGE:${{ gitea.event.release.tag_name || 'latest' }}" \
+            -t "$IMAGE:latest" .
+
+      - name: Replace running container
+        run: |
+          docker rm -f "$CONTAINER" 2>/dev/null || true
+          docker run -d \
+            --name "$CONTAINER" \
+            --restart unless-stopped \
+            -p "127.0.0.1:${HOST_PORT}:80" \
+            "$IMAGE:latest"
+
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 10); do
+            if docker exec "$CONTAINER" wget -qO- http://localhost/ | grep "<title>CORSAIRDASH" >/dev/null; then
+              echo "Serving on localhost:${HOST_PORT}"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$CONTAINER"
+          exit 1
+
+      - name: Prune old images
+        if: success()
+        run: docker image prune -f >/dev/null || true

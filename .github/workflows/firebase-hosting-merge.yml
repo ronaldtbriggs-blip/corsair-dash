@@ -1,0 +1,34 @@
+name: Deploy to Firebase Hosting (Prod & Dev Instances)
+on:
+  push:
+    branches:
+      - main
+      - dev
+jobs:
+  deploy_prod:
+    if: github.ref == 'refs/heads/main'
+    name: "Deploy Production Instance (corsairdash.web.app)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_OPERANT_HILLS }}
+          channelId: live
+          projectId: operant-hills
+          target: prod
+
+  deploy_dev:
+    if: github.ref == 'refs/heads/dev'
+    name: "Deploy Dev Instance (corsairdash-dev.web.app)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_OPERANT_HILLS }}
+          channelId: live
+          projectId: operant-hills
+          target: dev

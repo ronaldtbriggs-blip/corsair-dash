@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#041322">
+  <title>CORSAIRDASH: Sovereign Seas (32-Bit / 64-Bit Maritime Arcade)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game-container">
+    <!-- Main 2.5D Archipelago Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Toggleable CRT / Nautical Vignette Overlay -->
+    <div id="crt-layer" class="crt-overlay"></div>
+
+    <!-- Top Status Bar -->
+    <header id="top-hud">
+      <!-- Left: Gold, High Score, Wind & Pirate Swarm Status Pill -->
+      <div class="hud-pill compact-status-pill">
+        <span id="today-earnings" class="hud-value font-gold">🪙 180g</span>
+        <span class="hud-sep">•</span>
+        <span id="today-score" class="hud-value font-cyan">🏆 0</span>
+        <span class="hud-sep">•</span>
+        <span id="today-highscore" class="hud-value font-amber">👑 HI: 0</span>
+        <span class="hud-sep">•</span>
+        <span id="weather-status" class="hud-value">🧭 NE 18KT • 🏴‍☠️ 5</span>
+      </div>
+
+      <!-- Right: Charter Ledger, Shipyard Loadout, Mod Studio & Menu -->
+      <div class="hud-actions-cluster">
+        <button id="loadout-hud-btn" class="menu-toggle-btn loadout-btn" onclick="window.game && window.game.toggleLoadoutModal(true)">
+          ⚓ SLOOP (0/2) [L]
+        </button>
+        <button class="menu-toggle-btn" onclick="window.game && window.game.repairHullAtPort()" title="Repair Hull Integrity">
+          🔨 REPAIR
+        </button>
+        <button class="menu-toggle-btn mod-btn" onclick="window.game && window.game.toggleModStudioModal(true)">
+          🛠️ MODS
+        </button>
+        <button id="menu-btn" class="menu-toggle-btn" onclick="window.game && window.game.toggleMenuModal(true)">
+          🪗 SHANTY / MENU
+        </button>
+      </div>
+    </header>
+
+    <!-- Compact Floating Ship Gauges (Top-Left: Knots, Hull HP, Broadside Reload) -->
+    <div id="vehicle-gauges" class="compact-gauge-hud">
+      <div class="speed-cluster">
+        <span id="speed-display" class="speed-val">0</span>
+        <span class="speed-unit">KNOTS</span>
+      </div>
+      <div class="mini-bars-cluster">
+        <div class="mini-bar-row" title="Ship Hull Integrity">
+          <span class="mini-bar-icon">🛡️</span>
+          <div class="mini-bar-bg"><div id="gauge-hull-fill" class="gauge-fill-hull"></div></div>
+        </div>
+        <div class="mini-bar-row" title="Broadside Cannon Reload [F / Click]">
+          <span class="mini-bar-icon">💣</span>
+          <div class="mini-bar-bg"><div id="gauge-cannon-fill" class="gauge-fill-cannon"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pulsing Royal Charter Ledger Pill (Below Gauges) -->
+    <button id="phone-minimized-pill" onclick="window.game && window.game.togglePhone(true)">
+      <span>📜</span>
+      <span id="phone-pill-title">CHARTER LEDGER</span>
+      <span id="phone-pill-badge" style="color:#fde047;">READY</span>
+    </button>
+
+    <!-- Nautical Chart Minimap (Top-Right) -->
+    <div id="minimap-container" title="Tap any Island Port to set Astrolabe Compass Bearing">
+      <canvas id="minimap-canvas" width="122" height="122"></canvas>
+    </div>
+
+    <!-- Active Boss Monster Health & Outrun Distance Bar -->
+    <div id="boss-hud-bar">
+      <div id="boss-hud-title">🐙 THE ABYSSAL KRAKEN (BOUNTY: +1,200G)</div>
+      <div class="boss-hp-track">
+        <div id="boss-hud-hp-fill"></div>
+      </div>
+      <div id="boss-hud-meta">HP: 520/520 • OUTRUN DIST: 620/2100m</div>
+    </div>
+
+    <!-- Active Maritime Event Alert Banner -->
+    <div id="event-banner">
+      🐙 BOSS EVENT: THE ABYSSAL KRAKEN RISES FROM THE DEEP! 🐙
+    </div>
+
+    <!-- Carrier Pigeon Cargo Contract Toast (Top-Center) -->
+    <div id="offer-toast" class="offer-toast-bar" style="display: none;">
+      <div class="toast-left">
+        <span class="toast-bell-icon">🕊️</span>
+        <div class="toast-info">
+          <div class="toast-store" id="toast-store-title">2x EAST INDIA SPICES (PORT ROYAL ➔ NASSAU)</div>
+          <div class="toast-meta">
+            <span id="toast-payout" class="toast-payout-tag">+185 GOLD</span>
+            <span>•</span>
+            <span id="toast-distance">2.4 leagues</span>
+            <span>•</span>
+            <span id="toast-timer" class="toast-timer-tag">25s</span>
+          </div>
+        </div>
+      </div>
+      <div class="toast-actions">
+        <button class="toast-btn toast-btn-accept" onclick="window.game && window.game.acceptOrder()">SIGN [Y]</button>
+        <button class="toast-btn toast-btn-view" onclick="window.game && window.game.togglePhone(true)">LEDGER</button>
+        <button class="toast-btn toast-btn-dismiss" onclick="window.game && window.game.dismissOfferToast()">✕</button>
+      </div>
+    </div>
+
+    <!-- Captain's Royal Charter Ledger & Spyglass Dock -->
+    <div id="phone-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 85;" onclick="window.game && window.game.togglePhone(false)"></div>
+    <div id="phone-dock" class="minimized">
+      <div class="phone-notch">
+        <span>🧭 ROYAL ADMIRALTY</span>
+        <span id="hud-difficulty-badge">🟡 PRIVATEER TRADEWINDS</span>
+      </div>
+
+      <div class="app-header">
+        <div class="app-brand">CORSAIR<span>LEDGER</span></div>
+        <button id="phone-close-btn" class="phone-toggle-btn" onclick="window.game && window.game.togglePhone(false)">✕ CLOSE</button>
+      </div>
+
+      <div id="phone-content" class="phone-screen">
+        <!-- Populated dynamically by GameEngine.updatePhoneUI() -->
+      </div>
+    </div>
+
+    <!-- ⚓ SHIPYARD, 6 SHIP TIERS & MODULAR LOADOUT STORE MODAL [L] -->
+    <div id="loadout-modal" class="game-modal" style="display: none;">
+      <div class="modal-content-box wide-shipyard">
+        <div class="menu-modal-header">
+          <h2 class="modal-title" style="margin-bottom: 0;">⚓ ROYAL DRYDOCK, SHIP TIERS &amp; LOADOUT SLOTS</h2>
+          <div style="display: flex; gap: 8px;">
+            <button class="tier-btn buyable" style="padding: 6px 12px; font-size: 8px;" onclick="window.game && window.game.repairHullAtPort()">🔨 REPAIR HULL</button>
+            <button class="modal-close-btn" onclick="window.game && window.game.toggleLoadoutModal(false)">✕</button>
+          </div>
+        </div>
+
+        <div id="loadout-ship-summary" class="shipyard-summary-bar"></div>
+
+        <!-- 1. Active Loadout Slots -->
+        <div class="section-heading">
+          <span>🧩 EQUIPPED LOADOUT SLOTS (CLICK ANY SLOT TO UNEQUIP &amp; REFUND 100% GOLD)</span>
+          <span style="color:#fde047; font-size:7.5px;">0 GUN MODULES = +12% SMUGGLER SPEED &amp; +25% PAYOUT!</span>
+        </div>
+        <div id="loadout-slots-grid" class="slots-grid"></div>
+
+        <!-- 2. 6 Ship Tiers (Sloop -> Schooner -> Brigantine -> Fluyt -> Frigate -> Man-o'-War) -->
+        <div class="section-heading">
+          <span>🚢 6 VESSEL TIERS (UPGRADE FOR MORE LOADOUT SLOTS, BASE HOLD &amp; HULL)</span>
+        </div>
+        <div id="loadout-tiers-grid" class="tiers-grid"></div>
+
+        <!-- 3. 8 Modular Upgrades Store -->
+        <div class="section-heading">
+          <span>🛠️ SHIPWRIGHT MODULE STORE (EACH PURCHASE SLOTS INTO AN OPEN SLOT)</span>
+        </div>
+        <div id="loadout-store-grid" class="modules-store-grid"></div>
+
+        <button class="btn-arcade green" style="margin-top: 14px;" onclick="window.game && window.game.toggleLoadoutModal(false)">
+          ⛵ WEIGH ANCHOR &amp; RETURN TO SEA
+        </button>
+      </div>
+    </div>
+
+    <!-- 🪗 CAPTAIN'S MENU, SEA SHANTY CHOIR & DIFFICULTY MODAL [M] -->
+    <div id="menu-modal" class="game-modal" style="display: none;">
+      <div class="modal-content-box">
+        <div class="menu-modal-header">
+          <h2 class="modal-title" style="margin-bottom: 0;">🪗 CAPTAIN'S QUARTERS &amp; SEA SHANTY CHOIR</h2>
+          <button class="modal-close-btn" onclick="window.game && window.game.toggleMenuModal(false)">✕</button>
+        </div>
+
+        <!-- 1. Sea Shanty Concertina & Choir -->
+        <div class="menu-section">
+          <div class="menu-section-title">🪗 SEA SHANTY HURDY-GURDY &amp; CREW CHOIR [KEY: R]</div>
+          <div class="radio-controls-row">
+            <button class="radio-ctrl-btn" onclick="window.game && window.game.prevRadioTrack()">⏮️ PREV</button>
+            <button id="menu-radio-play-btn" class="radio-ctrl-btn play-btn" onclick="window.game && window.game.toggleRadioPlay()">🪗 SING SHANTY</button>
+            <button class="radio-ctrl-btn" onclick="window.game && window.game.nextRadioTrack()">NEXT ⏭️</button>
+            <button id="menu-radio-mute-btn" class="radio-ctrl-btn" onclick="window.game && window.game.toggleMute()">🔊 SOUND</button>
+          </div>
+          <div id="radio-status" class="radio-track-name">SHANTY CHOIR RESTING (PRESS SING)</div>
+          <div id="shanty-lyric-line" style="font-size: 12px; color: #fde047; text-align: center; margin-top: 4px; font-style: italic;">
+            "⚓ Crew ready to sing! Press [R] for Sea Shanties!"
+          </div>
+        </div>
+
+        <!-- 2. 3 Difficulty Modes (Sailing Physics + Pirate Density Escalation) -->
+        <div class="menu-section">
+          <div class="menu-section-title">⚔️ VOYAGE DIFFICULTY (SAILING PHYSICS &amp; PIRATE ESCALATION)</div>
+          <div class="difficulty-grid" style="margin-bottom: 0;">
+            <button class="diff-card-btn" data-diff-btn="easy" onclick="window.game && window.game.setDifficulty('easy')">
+              <div class="diff-card-title">🟢 MERCHANT BREEZE</div>
+              <div class="diff-card-desc">Forgiving wind tacking &amp; slow pirate density growth (5 ➔ 14). 1.0x Score.</div>
+            </button>
+            <button class="diff-card-btn active" data-diff-btn="medium" onclick="window.game && window.game.setDifficulty('medium')">
+              <div class="diff-card-title">🟡 PRIVATEER</div>
+              <div class="diff-card-desc">True wind-angle sailing &amp; steady pirate hunting packs (9 ➔ 28). 1.5x Score.</div>
+            </button>
+            <button class="diff-card-btn" data-diff-btn="hard" onclick="window.game && window.game.setDifficulty('hard')">
+              <div class="diff-card-title">🔴 MAELSTROM</div>
+              <div class="diff-card-desc">Heavy keel inertia, gale currents &amp; swarming pirate armadas (15 ➔ 46)! 2.5x Score.</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. Quick Actions -->
+        <div class="menu-section">
+          <div class="menu-section-title">🧭 HELM &amp; DECK COMMANDS</div>
+          <div class="menu-btn-grid">
+            <button class="menu-opt-btn" onclick="window.game && window.game.toggleLoadoutModal(true); window.game.toggleMenuModal(false)">⚓ SHIPYARD &amp; SLOTS</button>
+            <button class="menu-opt-btn" onclick="window.game && window.game.repairHullAtPort()">🔨 REPAIR HULL</button>
+            <button class="menu-opt-btn" onclick="window.game && window.game.resetPlayerVehicle()">🏰 TOW TO PORT ROYAL</button>
+            <button class="menu-opt-btn" onclick="document.getElementById('crt-layer').classList.toggle('disabled')">📺 TOGGLE VIGNETTE</button>
+          </div>
+        </div>
+
+        <button class="btn-arcade green" onclick="window.game && window.game.toggleMenuModal(false)">⛵ RETURN TO QUARTERDECK</button>
+      </div>
+    </div>
+
+    <!-- 🛠️ UNIVERSAL MODDER HOLODECK STUDIO MODAL -->
+    <div id="mod-studio-modal" class="game-modal" style="display: none;">
+      <div class="modal-content-box">
+        <div class="menu-modal-header">
+          <h2 class="modal-title" style="color: #e879f9; margin-bottom: 0;">🛠️ UNIVERSAL MODDER HOLODECK STUDIO</h2>
+          <button class="modal-close-btn" onclick="window.game && window.game.toggleModStudioModal(false)">✕</button>
+        </div>
+        <p class="modal-subtitle">
+          Live runtime mutators, Boss Monster event spawners, and JSON modpack tools powered by <code>ronaldtbriggs-blip/universal-modder</code>.
+        </p>
+
+        <div class="menu-section">
+          <div class="menu-section-title">💀 INSTANT BOSS MONSTER EVENT SPAWNER (FIGHT OR OUTRUN)</div>
+          <div class="menu-btn-grid">
+            <button class="menu-opt-btn" style="border-color:#a855f7;" onclick="window.game && window.game.modSpawnBoss('kraken')">🐙 SPAWN ABYSSAL KRAKEN</button>
+            <button class="menu-opt-btn" style="border-color:#10b981;" onclick="window.game && window.game.modSpawnBoss('dutchman')">👻 SPAWN FLYING DUTCHMAN</button>
+            <button class="menu-opt-btn" style="border-color:#ef4444;" onclick="window.game && window.game.modSpawnBoss('megalodon')">🦈 SPAWN MEGALODON</button>
+            <button class="menu-opt-btn" style="border-color:#06b6d4;" onclick="window.game && window.game.modSpawnBoss('leviathan')">🐉 SPAWN SEA SERPENT</button>
+          </div>
+        </div>
+
+        <div class="menu-section">
+          <div class="menu-section-title">🪙 SANDBOX TREASURY &amp; SHIP TIER UNLOCKS</div>
+          <div class="menu-btn-grid">
+            <button class="menu-opt-btn" style="border-color:#fde047;" onclick="window.game && window.game.modGrantGold(2500)">🪙 GRANT +2,500 GOLD</button>
+            <button class="menu-opt-btn" style="border-color:#34d399;" onclick="window.game && window.game.modUnlockAllShips()">🚢 UNLOCK MAN-O'-WAR (LV.6)</button>
+            <button class="menu-opt-btn" onclick="window.game && window.game.triggerRandomMaritimeEvent('BLACK_ARMADA'); window.game.toggleModStudioModal(false)">🏴‍☠️ SPAWN PIRATE ARMADA</button>
+            <button class="menu-opt-btn" onclick="window.game && window.game.modExportSnapshot()">📦 EXPORT JSON MODPACK</button>
+          </div>
+        </div>
+
+        <button class="btn-arcade blue" onclick="window.game && window.game.toggleModStudioModal(false)">✅ APPLY &amp; RESUME VOYAGE</button>
+      </div>
+    </div>
+
+    <!-- Wharf Cargo Unloading Decision Modal (Sailing Equivalent of DixieDash Dropoff Modal) -->
+    <div id="dropoff-modal" class="game-modal" style="display: none;">
+      <div class="modal-content-box">
+        <div style="font-size: 38px; margin-bottom: 6px;">⚓📦</div>
+        <h2 id="dropoff-dest-name" class="modal-title">Port Royal Wharf</h2>
+        <div id="dropoff-address" style="color: #38bdf8; font-size: 13px; font-weight: 700; margin-bottom: 6px;">Charter Cargo</div>
+        <div id="dropoff-instructions" style="color: #fde047; font-size: 12px; margin-bottom: 14px; font-style: italic;">"Deliver dry to the Harbor Master's crane!"</div>
+
+        <div style="background: #1e293b; border: 2px solid #f59e0b; border-radius: 8px; padding: 10px; margin-bottom: 14px; font-size: 12.5px;">
+          ⚠️ <strong>HARBOR WHARF UNLOADING DECISION:</strong><br>
+          <span style="color: #cbd5e1;">Heavy swell is rolling against the stone pier! How will your crew unload the cargo crates?</span>
+        </div>
+
+        <button class="btn-arcade green" onclick="window.game.completeDelivery(true)">
+          🏗️ SECURE MOORING LINES &amp; CRANE UNLOAD TO DRY WAREHOUSE (5★ + FULL BONUS)
+        </button>
+        <button class="btn-arcade" style="background: linear-gradient(180deg, #991b1b, #450a0a); border-color: #f87171;" onclick="window.game.completeDelivery(false)">
+          🌊 TOSS BARRELS INTO THE HARBOR SURF FOR A FAST GETAWAY
+        </button>
+      </div>
+    </div>
+
+    <!-- Charter Completed & High Score Modal -->
+    <div id="review-modal" class="game-modal" style="display: none;">
+      <div class="modal-content-box" style="max-width: 520px;">
+        <div style="font-size: 40px; margin-bottom: 6px;">🪙🏆</div>
+        <h2 class="modal-title" style="color: #34d399;">CHARTER DELIVERED!</h2>
+        <div id="review-payout" style="font-size: 22px; font-weight: bold; color: #fde047; margin-bottom: 6px;">+240 GOLD (+2,400 PTS)</div>
+        <div id="review-stars" style="font-size: 22px; color: #fbbf24; margin-bottom: 10px;">★★★★★</div>
+        <div id="review-text" style="background: #1e293b; border-left: 4px solid #38bdf8; border-radius: 6px; padding: 12px; font-size: 13px; color: #e2e8f0; margin-bottom: 14px;">
+          "Every crate arrived dry and sealed!"
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-arcade" style="flex:1;" onclick="window.game.closeReviewModal(); window.game.toggleLoadoutModal(true);">⚓ UPGRADE LOADOUT</button>
+          <button class="btn-arcade blue" style="flex:1;" onclick="window.game.closeReviewModal()">⛵ CONTINUE SAILING</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile On-Screen Touch Helm & Broadside Controls -->
+    <div id="touch-controls">
+      <div class="touch-cluster-left">
+        <div id="touch-wheel-container" class="steering-wheel-wrapper">
+          <div id="touch-steering-wheel" class="virtual-steering-wheel">
+            <button id="touch-horn" class="wheel-center-hub" aria-label="Blow Foghorn">
+              <span>📯</span>
+              <span>HORN</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="touch-cluster-right">
+        <button id="touch-fire" class="touch-btn fire-btn">💣 FIRE BROADSIDES [F]</button>
+        <button id="touch-drift" class="touch-btn drift-btn">⚓ ANCHOR DRIFT [SPACE]</button>
+        <div class="touch-pedals-cluster">
+          <button id="touch-brake" class="touch-btn brake-pedal">🛑 REEF<br>SAILS</button>
+          <button id="touch-gas" class="touch-btn gas-pedal">⛵ HOIST<br>SAILS</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Title Screen Modal -->
+    <div id="title-modal" class="game-modal">
+      <div class="modal-content-box">
+        <div style="font-size: 42px; margin-bottom: 6px;">⛵🏴‍☠️🐙</div>
+        <h1 class="modal-title">CORSAIRDASH: SOVEREIGN SEAS</h1>
+        <p class="modal-subtitle">
+          Command a merchant courier or heavily-armed privateer across 12 island ports! Haul high-stakes cargo charters, customize your ship's modular loadout slots across <strong>6 Ship Tiers</strong> (from a nimble <em>Coastal Sloop</em> up to a 12-slot <em>First-Rate Man-o'-War</em>), sing sea shanties, and battle or outrun swarming pirates and Legendary Sea Monster Bosses for the ultimate <strong>High Score</strong>!
+        </p>
+
+        <!-- Select Difficulty Mode on Title Screen -->
+        <div style="text-align: left; font-family: 'Press Start 2P', monospace; font-size: 8.5px; color: #38bdf8; margin-bottom: 6px;">
+          ⚔️ SELECT DIFFICULTY (GOVERN SAILING PHYSICS &amp; PIRATE SWARM ESCALATION):
+        </div>
+        <div class="difficulty-grid">
+          <button class="diff-card-btn" data-diff-btn="easy" onclick="window.selectTitleDifficulty('easy')">
+            <div class="diff-card-title">🟢 MERCHANT BREEZE</div>
+            <div class="diff-card-desc">Forgiving wind physics &amp; slow pirate density growth (5 ➔ 14). Ideal for pure Cargo Hold runners! (1.0x Score)</div>
+          </button>
+          <button class="diff-card-btn active" data-diff-btn="medium" onclick="window.selectTitleDifficulty('medium')">
+            <div class="diff-card-title">🟡 PRIVATEER</div>
+            <div class="diff-card-desc">Authentic wind-angle boost &amp; steady pirate hunting packs (9 ➔ 28). Balance cargo &amp; cannons! (1.5x Score)</div>
+          </button>
+          <button class="diff-card-btn" data-diff-btn="hard" onclick="window.selectTitleDifficulty('hard')">
+            <div class="diff-card-title">🔴 MAELSTROM</div>
+            <div class="diff-card-desc">Heavy keel momentum, gale currents &amp; relentless pirate armada swarms (15 ➔ 46)! (2.5x Score)</div>
+          </button>
+        </div>
+
+        <div style="background: #1e293b; border: 1px dashed #eab308; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 12px; text-align: left; line-height: 1.55;">
+          <div style="color: #fde047; font-weight: bold; margin-bottom: 4px;">⚓ CAPTAIN'S CONTROLS &amp; LOADOUT STRATEGY:</div>
+          <div>⛵ <strong>W / S (Up / Down)</strong>: Hoist Sails / Reef Sails &amp; Reverse</div>
+          <div>🧭 <strong>A / D (Left / Right)</strong>: Steer Rudder • <strong>Spacebar</strong>: Anchor-Drift Broadside Turn</div>
+          <div>💣 <strong>F / Left-Click / Enter</strong>: Fire Port &amp; Starboard Broadsides • <strong>E</strong>: Drop Greek Fire Barrel</div>
+          <div>⚓ <strong>L or B</strong>: Open <strong>Shipyard &amp; Loadout Slots</strong> (6 Ship Tiers, 8 Modules, Hull Repair)</div>
+          <div>🪗 <strong>R</strong>: Sing <strong>4 Multi-Voice Sea Shanties</strong> • <strong>H</strong>: Brass Foghorn</div>
+          <div style="margin-top: 5px; color: #a7f3d0;">
+            💡 <strong>COST-TO-BENEFIT LOADOUTS:</strong> Stack <em>Expanded Cargo Holds</em> + <em>Silk Sails</em> with <strong>0 gun modules</strong> for a <strong>+12% Speed &amp; +25% Smuggler Payout Overdrive</strong> (you must cleverly outrun pirates &amp; Bosses!), OR slot <em>Broadside Cannons</em> + <em>Swivel Culverins</em> to slay the <strong>Kraken, Flying Dutchman, Megalodon &amp; Leviathan</strong> for massive 1,000g–1,800g bounties!
+          </div>
+        </div>
+
+        <button class="btn-arcade" onclick="startGame()">⚓ SET SAIL FOR HIGH SCORE (INSERT DOUBLOON)</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="data.js"></script>
+  <script src="audio.js"></script>
+  <script src="map.js"></script>
+  <script src="pirates.js"></script>
+  <script src="bosses.js"></script>
+  <script src="game.js"></script>
+  <script>
+    window.selectedStartDiff = 'medium';
+    window.selectTitleDifficulty = function(diffId) {
+      window.selectedStartDiff = diffId;
+      document.querySelectorAll('[data-diff-btn]').forEach(btn => {
+        if (btn.getAttribute('data-diff-btn') === diffId) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+      if (window.game) window.game.setDifficulty(diffId);
+    };
+
+    function startGame() {
+      document.getElementById('title-modal').style.display = 'none';
+      if (!window.game) {
+        window.audioManager.init();
+        window.audioManager.resume();
+        window.game = new GameEngine();
+        window.game.setDifficulty(window.selectedStartDiff || 'medium');
+        window.game.start();
+      }
+    }
+  </script>
+</body>
+</html>

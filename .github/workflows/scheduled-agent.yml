@@ -1,0 +1,33 @@
+name: "⏱️ Antigravity CorsairDash Scheduled Pulse"
+
+on:
+  schedule:
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  daily-pulse:
+    name: "Autonomous CorsairDash Multi-Instance & Modding Audit"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Scheduled CorsairDash Health Check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python agents/ci_runner.py \
+            --event schedule \
+            --task "Daily CorsairDash ship tiers, loadout slots, pirate escalation, boss encounters, and Prod/Dev Firebase instance integrity check." \
+            --mode summary-only

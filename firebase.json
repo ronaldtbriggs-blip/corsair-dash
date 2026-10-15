@@ -1,0 +1,72 @@
+{
+  "hosting": [
+    {
+      "target": "prod",
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        ".firebaserc",
+        "**/.*",
+        "node_modules/**",
+        "agents/**",
+        "knowledge/**",
+        "package*.json",
+        "__pycache__/**",
+        "*.py",
+        "*.md",
+        "Dockerfile"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache, no-store, must-revalidate"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "target": "dev",
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        ".firebaserc",
+        "**/.*",
+        "node_modules/**",
+        "agents/**",
+        "knowledge/**",
+        "package*.json",
+        "__pycache__/**",
+        "*.py",
+        "*.md",
+        "Dockerfile"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache, no-store, must-revalidate"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

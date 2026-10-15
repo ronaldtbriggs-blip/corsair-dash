@@ -1,0 +1,23 @@
+{
+  "name": "corsair-dash",
+  "version": "1.0.0",
+  "description": "CorsairDash: Sovereign Seas — 32-Bit / 64-Bit Maritime Cargo Transport, Pirate Swarm, Modular Loadout & Boss Monster Arcade Game",
+  "main": "index.html",
+  "scripts": {
+    "deploy:prod": "npx firebase deploy --only hosting:prod --project operant-hills",
+    "deploy:dev": "npx firebase deploy --only hosting:dev --project operant-hills",
+    "deploy:all": "npx firebase deploy --only hosting --project operant-hills",
+    "mod:audit": "python agents/ci_runner.py --event dispatch --mode summary-only"
+  },
+  "keywords": [
+    "corsairdash",
+    "dixiedash",
+    "sailing",
+    "pirates",
+    "arcade",
+    "universal-modder",
+    "antigravity"
+  ],
+  "author": "Ronald Briggs",
+  "license": "Proprietary"
+}
