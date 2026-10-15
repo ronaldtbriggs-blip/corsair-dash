@@ -1,5 +1,5 @@
 // CORSAIRDASH: Sovereign Seas — Core Game Engine
-// Reimagines DixieDash's arcade delivery loop as a Golden Age of Sail cargo, pirate combat, loadout & boss game.
+// Features 10 Ship Tiers, 14 Loadout Modules with 5 Rarity Tiers & Special Abilities, 7 Boss Monsters, Endless Cycles & Mobile Protection.
 
 class GameEngine {
   constructor() {
@@ -12,11 +12,16 @@ class GameEngine {
     this.islands = this.data.islands || [];
     this.shipTiers = this.data.shipTiers || [];
     this.loadoutCatalog = this.data.loadoutModules || [];
+    this.moduleRarities = this.data.moduleRarities || {};
+    this.achievementsCatalog = this.data.achievementsCatalog || [];
     this.difficulties = this.data.difficulties || {};
 
     // Active Difficulty Mode ('easy', 'medium', 'hard')
     this.difficultyId = 'medium';
     this.difficulty = this.difficulties[this.difficultyId] || this.difficulties.medium;
+
+    // Sandbox Cheat Menu visibility (OFF by default unless toggled on Start Menu)
+    this.cheatsEnabled = Boolean(window.cheatsEnabledAtStart);
 
     // Sub-engines
     this.map = new ArchipelagoMap(this.data);
@@ -28,10 +33,16 @@ class GameEngine {
     this.modSpeedMult = 1.0;
     this.modCannonReloadMult = 1.0;
 
-    // Ship Progression & Loadout State
-    this.currentTierIndex = 0; // Starts at Tier 1: Coastal Sloop (index 0)
+    // Ship Progression & Loadout State (10 Ship Tiers, up to 20 Slots)
+    this.currentTierIndex = 0; // Starts at Tier 1: Coastal Sloop
     this.unlockedTierIndex = 0;
-    this.equippedModules = []; // Array of module IDs occupying slots (max = currentShipTier.maxSlots)
+    this.equippedModules = []; // Array of module instances occupying slots
+    this.rarityMarketOffers = []; // 6 rotating Rarity-Rolled modules in Shipyard
+
+    // 7-Boss Gauntlet & Endless Cycle State
+    this.bossCycle = 1;
+    this.slainBossIdsInCycle = [];
+    this.elderTrioVictoryShown = false;
 
     // Player Ship Physics & Combat State (Spawns at Port Royal Haven dock)
     this.player = {
@@ -54,14 +65,39 @@ class GameEngine {
       reloadTime: 1.45,
       reloadTimer: 0,
       swivelGuns: 0,
+      swivelFireRateMult: 1.0,
       swivelTimer: 0,
+      pointDefense: 0,
+      pointDefenseTimer: 0,
+      mortarGuns: 0,
+      mortarDamage: 0,
+      mortarTimer: 0,
+      chainLightning: 0,
+      burnDamage: 0,
+      slowEffect: 0,
+      thornsReflect: 0,
+      ramDamage: 0,
+      whirlpoolResist: 0,
       fireBarrelsCount: 0,
+      barrelDamageBonus: 0,
+      barrelAutoDrop: 0,
+      barrelAutoTimer: 0,
+      barrelMagnet: 0,
       barrelCooldown: 0,
+      magnetRadius: 0,
+      salvageGoldBonus: 0,
+      chestHeal: 0,
+      bountyBonus: 0,
+      payoutBonus: 0,
+      scoreBonus: 0,
       regenPerSec: 0,
       damageReduction: 0,
       windEfficiency: 0,
       reefProtection: 0,
       unarmedSmugglerBonus: true,
+      paddleWheels: false,
+      boneRam: false,
+      celestialAura: false,
       width: 16,
       length: 34,
       masts: 1,
@@ -81,22 +117,23 @@ class GameEngine {
     };
 
     // Wind & Weather State
-    this.windAngle = -Math.PI * 0.25; // NE Tradewinds
+    this.windAngle = -Math.PI * 0.25;
     this.windSpeed = 18;
     this.windShiftTimer = 0;
     this.weather = 'CLEAR_TRADEWINDS';
     this.activeEvent = null;
     this.eventTimeRemaining = 0;
-    this.nextEventTimer = 42;
+    this.nextEventTimer = 38;
 
-    // Particles, Cannonballs, Wakes & Floating Fire Barrels
+    // Particles, Cannonballs, Lightning Arcs, Wakes & Floating Fire Barrels
     this.wakeMarks = [];
     this.particles = [];
+    this.lightningArcs = [];
     this.floatingTexts = [];
     this.playerProjectiles = [];
     this.droppedFireBarrels = [];
 
-    // Charter Ledger State Machine ('SEARCHING', 'OFFER', 'TO_PICKUP', 'AT_PICKUP', 'TO_DESTINATION', 'DROPOFF_MODAL')
+    // Charter Ledger State Machine
     this.appState = 'SEARCHING';
     this.currentOrder = null;
     this.offerTimer = 0;
@@ -110,14 +147,31 @@ class GameEngine {
       this.offerAlertMode = 'PILL_ONLY';
     }
 
-    // Captain's Lifetime & Voyage Stats (High Score Arcade Objective!)
+    // Load Persistent High Scores, Boss Kill Records & Achievements
     let savedHigh = 0;
+    let savedDiffHigh = { easy: 0, medium: 0, hard: 0 };
+    let savedBossCounts = {};
+    let savedAchievements = [];
+    let savedHighestCycle = 1;
     try {
       savedHigh = parseInt(localStorage.getItem('corsairdash_highscore') || '0', 10) || 0;
+      const dh = JSON.parse(localStorage.getItem('corsairdash_diff_highscores') || '{}');
+      if (dh && typeof dh === 'object') savedDiffHigh = { easy: dh.easy || 0, medium: dh.medium || 0, hard: dh.hard || 0 };
+      const bc = JSON.parse(localStorage.getItem('corsairdash_boss_counts') || '{}');
+      if (bc && typeof bc === 'object') savedBossCounts = bc;
+      const ach = JSON.parse(localStorage.getItem('corsairdash_achievements') || '[]');
+      if (Array.isArray(ach)) savedAchievements = ach;
+      savedHighestCycle = parseInt(localStorage.getItem('corsairdash_highest_cycle') || '1', 10) || 1;
     } catch (e) {}
 
+    this.unlockedAchievements = savedAchievements;
+    this.slainBossCounts = savedBossCounts;
+    this.highScoreByDiff = savedDiffHigh;
+    this.highestBossCycle = savedHighestCycle;
+    this.pacifistDeliveries = 0;
+
     this.stats = {
-      gold: 180, // Starting gold so player can buy their first Cargo Hold or Cannon module right away!
+      gold: 180,
       score: 0,
       highScore: savedHigh,
       deliveries: 0,
@@ -140,14 +194,138 @@ class GameEngine {
     this.activeWheelTouchId = null;
     this.boundaryAlertCooldown = 0;
 
+    this.rerollRarityMarket(true);
     this.recalculateShipStats();
     this.setupInput();
     this.initTouchControls();
+    this.initMobileExitProtection();
     this.initMinimapInteractions();
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
 
     this.lastTime = performance.now();
+  }
+
+  // Normalize any equipped module entry (supports full rarity instance object or legacy string ID)
+  resolveEquippedModule(entry) {
+    if (!entry) return null;
+    if (typeof entry === 'object' && entry.effects) return entry;
+    const baseMod = this.loadoutCatalog.find(m => m.id === entry);
+    if (!baseMod) return null;
+    return this.createModuleInstance(baseMod, 'basic');
+  }
+
+  // Create a Basic or Rarity-Rolled Module Instance with Multiplied Stats & Special Sauce
+  createModuleInstance(baseMod, rarityId = 'basic') {
+    const rar = this.moduleRarities[rarityId] || this.moduleRarities.basic || {
+      id: 'basic', name: 'BASIC', badge: '⚪ BASIC', color: '#94a3b8', statMult: 1.0, costMult: 1.0
+    };
+    const mult = rar.statMult || 1.0;
+    const cost = Math.round(baseMod.cost * (rar.costMult || 1.0));
+
+    const effects = {};
+    const baseEf = baseMod.effects || {};
+    for (const k of Object.keys(baseEf)) {
+      const val = baseEf[k];
+      if (k === 'cannonsPerSide' || k === 'swivelGuns' || k === 'fireBarrels' || k === 'mortarGuns') {
+        effects[k] = val;
+      } else if (k === 'cargoBonus' || k === 'hullBonus' || k === 'cannonDamage' || k === 'barrelDamage' || k === 'magnetRadius' || k === 'mortarDamage') {
+        effects[k] = Math.round(val * mult);
+      } else if (val > 0) {
+        effects[k] = Number((val * mult).toFixed(3));
+      } else {
+        effects[k] = val; // Negative penalties (like cargo -2% speed) handled by rarityPerks
+      }
+    }
+
+    let displayName = baseMod.name;
+    let specialSauce = null;
+
+    if (rarityId !== 'basic' && baseMod.rarityPerks && baseMod.rarityPerks[rarityId]) {
+      const perk = baseMod.rarityPerks[rarityId];
+      if (perk.title) displayName = perk.title;
+      if (perk.sauce) specialSauce = perk.sauce;
+      if (perk.bonusEffects) {
+        for (const [bk, bval] of Object.entries(perk.bonusEffects)) {
+          effects[bk] = (effects[bk] || 0) + bval;
+        }
+      }
+    }
+
+    // Format a crisp summary of the multiplied stats
+    const statParts = [];
+    if (effects.cargoBonus) statParts.push(`+${effects.cargoBonus} Crates`);
+    if (effects.cannonsPerSide) statParts.push(`+${effects.cannonsPerSide} Gun/Side`);
+    if (effects.cannonDamage) statParts.push(`+${effects.cannonDamage} Dmg`);
+    if (effects.swivelGuns) statParts.push(`+${effects.swivelGuns} Swivel`);
+    if (effects.mortarGuns) statParts.push(`${effects.mortarGuns}x Mortar (${effects.mortarDamage || 48} AoE)`);
+    if (effects.hullBonus) statParts.push(`+${effects.hullBonus} Hull`);
+    if (effects.regenPerSec) statParts.push(`+${Number(effects.regenPerSec).toFixed(1)} HP/s`);
+    if (effects.speedMult) statParts.push(`${effects.speedMult > 0 ? '+' : ''}${Math.round(effects.speedMult * 100)}% Speed`);
+    if (effects.turnMult) statParts.push(`+${Math.round(effects.turnMult * 100)}% Turn`);
+    if (effects.magnetRadius) statParts.push(`+${effects.magnetRadius}m Magnet`);
+    if (effects.bountyBonus) statParts.push(`+${Math.round(effects.bountyBonus * 100)}% Bounties`);
+    if (effects.fireBarrels) statParts.push(`Fire Kegs (${effects.barrelDamage || 85} Dmg)`);
+
+    return {
+      instanceId: 'mod_' + Math.random().toString(36).slice(2, 9),
+      baseId: baseMod.id,
+      name: displayName,
+      baseName: baseMod.name,
+      icon: baseMod.icon,
+      category: baseMod.category,
+      rarity: rar.id,
+      rarityBadge: rar.badge,
+      rarityColor: rar.color,
+      cost,
+      shortStat: statParts.length > 0 ? statParts.join(' • ') : baseMod.shortStat,
+      description: baseMod.description,
+      specialSauce,
+      effects
+    };
+  }
+
+  // Roll 6 Random Rarity Loadout Offers for the Shipyard Special Market
+  rerollRarityMarket(freeRoll = false) {
+    const rerollCost = 75;
+    if (!freeRoll) {
+      if (this.stats.gold < rerollCost) {
+        this.showBanner(`🪙 NEED ${rerollCost} GOLD TO REROLL THE RARITY MARKET!`, 'linear-gradient(90deg, #b91c1c, #dc2626)');
+        return;
+      }
+      this.stats.gold -= rerollCost;
+      if (window.audioManager) window.audioManager.playDoubloonChime();
+    }
+
+    const cycleBoost = Math.max(0, (this.bossCycle || 1) - 1) * 4;
+    const rarityTable = [
+      { id: 'uncommon', weight: Math.max(18, 42 - cycleBoost) },
+      { id: 'rare', weight: 32 + Math.floor(cycleBoost * 0.5) },
+      { id: 'epic', weight: 18 + cycleBoost },
+      { id: 'legendary', weight: 8 + cycleBoost }
+    ];
+    const totalWeight = rarityTable.reduce((acc, r) => acc + r.weight, 0);
+
+    const pickRarity = () => {
+      let roll = Math.random() * totalWeight;
+      for (const r of rarityTable) {
+        if (roll < r.weight) return r.id;
+        roll -= r.weight;
+      }
+      return 'uncommon';
+    };
+
+    this.rarityMarketOffers = [];
+    for (let i = 0; i < 6; i++) {
+      const baseMod = this.loadoutCatalog[Math.floor(Math.random() * this.loadoutCatalog.length)];
+      // Guarantee at least 1 Rare+ and if freeRoll from cheat studio, boost Epic/Legendary
+      let rarId = pickRarity();
+      if (i === 0 && rarId === 'uncommon') rarId = 'rare';
+      this.rarityMarketOffers.push(this.createModuleInstance(baseMod, rarId));
+    }
+
+    this.updateGaugesUI();
+    this.renderLoadoutModalUI();
   }
 
   // Recalculate effective ship stats from current Ship Tier + Equipped Loadout Modules
@@ -162,20 +340,40 @@ class GameEngine {
     let turnMult = 1.0;
     let cargoCap = tier.baseCargo;
     let cannonsPerSide = tier.baseCannonsPerSide;
-    let cannonDamage = 24 + (tier.level - 1) * 5;
+    let cannonDamage = 24 + (tier.level - 1) * 6;
     let cannonRangeMult = 1.0;
     let reloadMult = 1.0;
     let swivelGuns = 0;
+    let swivelFireRateMult = 1.0;
+    let pointDefense = 0;
+    let mortarGuns = 0;
+    let mortarDamage = 0;
+    let chainLightning = 0;
+    let burnDamage = 0;
+    let slowEffect = 0;
+    let thornsReflect = 0;
+    let ramDamage = 0;
+    let whirlpoolResist = 0;
     let fireBarrels = 0;
+    let barrelDamageBonus = 0;
+    let barrelAutoDrop = 0;
+    let barrelMagnet = 0;
+    let magnetRadius = 0;
+    let salvageGoldBonus = 0;
+    let chestHeal = 0;
+    let bountyBonus = 0;
+    let payoutBonus = 0;
+    let scoreBonus = 0;
     let regenPerSec = 0;
     let damageReduction = 0;
-    let windEfficiency = 0;
+    let windEfficiency = tier.paddleWheels ? 0.35 : 0;
     let reefProtection = 0;
     let hasOffensiveGunModule = false;
 
-    for (const modId of this.equippedModules) {
-      const mod = this.loadoutCatalog.find(m => m.id === modId);
+    for (let i = 0; i < this.equippedModules.length; i++) {
+      const mod = this.resolveEquippedModule(this.equippedModules[i]);
       if (!mod || !mod.effects) continue;
+      this.equippedModules[i] = mod;
       const ef = mod.effects;
 
       if (ef.hullBonus) maxHull += ef.hullBonus;
@@ -188,17 +386,39 @@ class GameEngine {
         hasOffensiveGunModule = true;
       }
       if (ef.cannonDamage) cannonDamage += ef.cannonDamage;
-      if (ef.reloadReduction) reloadMult = Math.max(0.45, reloadMult - ef.reloadReduction);
+      if (ef.reloadReduction) reloadMult = Math.max(0.35, reloadMult - ef.reloadReduction);
       if (ef.swivelGuns) {
         swivelGuns += ef.swivelGuns;
         hasOffensiveGunModule = true;
       }
+      if (ef.swivelFireRateMult) swivelFireRateMult += ef.swivelFireRateMult;
+      if (ef.pointDefense) pointDefense += ef.pointDefense;
+      if (ef.mortarGuns) {
+        mortarGuns += ef.mortarGuns;
+        mortarDamage += (ef.mortarDamage || 48);
+        hasOffensiveGunModule = true;
+      }
+      if (ef.chainLightning) chainLightning += ef.chainLightning;
+      if (ef.burnDamage) burnDamage += ef.burnDamage;
+      if (ef.slowEffect) slowEffect = Math.min(0.70, slowEffect + ef.slowEffect);
+      if (ef.thornsReflect) thornsReflect = Math.min(1.5, thornsReflect + ef.thornsReflect);
+      if (ef.ramDamage) ramDamage += ef.ramDamage;
+      if (ef.whirlpoolResist) whirlpoolResist = Math.min(1.0, whirlpoolResist + ef.whirlpoolResist);
       if (ef.cannonRangeMult) cannonRangeMult += ef.cannonRangeMult;
       if (ef.fireBarrels) fireBarrels += ef.fireBarrels;
+      if (ef.barrelDamage) barrelDamageBonus += ef.barrelDamage;
+      if (ef.barrelAutoDrop) barrelAutoDrop += ef.barrelAutoDrop;
+      if (ef.barrelMagnet) barrelMagnet += ef.barrelMagnet;
+      if (ef.magnetRadius) magnetRadius += ef.magnetRadius;
+      if (ef.salvageGoldBonus) salvageGoldBonus += ef.salvageGoldBonus;
+      if (ef.chestHeal) chestHeal += ef.chestHeal;
+      if (ef.bountyBonus) bountyBonus += ef.bountyBonus;
+      if (ef.payoutBonus) payoutBonus += ef.payoutBonus;
+      if (ef.scoreBonus) scoreBonus += ef.scoreBonus;
       if (ef.regenPerSec) regenPerSec += ef.regenPerSec;
-      if (ef.damageReduction) damageReduction = Math.min(0.65, damageReduction + ef.damageReduction);
-      if (ef.windEfficiency) windEfficiency = Math.min(0.85, windEfficiency + ef.windEfficiency);
-      if (ef.reefProtection) reefProtection = Math.min(0.95, reefProtection + ef.reefProtection);
+      if (ef.damageReduction) damageReduction = Math.min(0.72, damageReduction + ef.damageReduction);
+      if (ef.windEfficiency) windEfficiency = Math.min(1.0, windEfficiency + ef.windEfficiency);
+      if (ef.reefProtection) reefProtection = Math.min(1.0, reefProtection + ef.reefProtection);
     }
 
     // "Unarmed Smuggler Overdrive": If player slots ONLY cargo/speed/evasion and 0 gun modules, grant +12% speed!
@@ -216,14 +436,36 @@ class GameEngine {
     this.player.cannonsPerSide = cannonsPerSide;
     this.player.cannonDamage = cannonDamage;
     this.player.cannonRange = Math.round(420 * cannonRangeMult);
-    this.player.reloadTime = Math.max(0.45, 1.45 * reloadMult / (this.modCannonReloadMult || 1.0));
+    this.player.reloadTime = Math.max(0.35, 1.45 * reloadMult / (this.modCannonReloadMult || 1.0));
     this.player.swivelGuns = swivelGuns;
+    this.player.swivelFireRateMult = swivelFireRateMult;
+    this.player.pointDefense = pointDefense;
+    this.player.mortarGuns = mortarGuns;
+    this.player.mortarDamage = mortarDamage;
+    this.player.chainLightning = chainLightning;
+    this.player.burnDamage = burnDamage;
+    this.player.slowEffect = slowEffect;
+    this.player.thornsReflect = thornsReflect;
+    this.player.ramDamage = ramDamage;
+    this.player.whirlpoolResist = whirlpoolResist;
     this.player.fireBarrelsCount = fireBarrels;
+    this.player.barrelDamageBonus = barrelDamageBonus;
+    this.player.barrelAutoDrop = barrelAutoDrop;
+    this.player.barrelMagnet = barrelMagnet;
+    this.player.magnetRadius = magnetRadius;
+    this.player.salvageGoldBonus = salvageGoldBonus;
+    this.player.chestHeal = chestHeal;
+    this.player.bountyBonus = bountyBonus;
+    this.player.payoutBonus = payoutBonus;
+    this.player.scoreBonus = scoreBonus;
     this.player.regenPerSec = regenPerSec;
     this.player.damageReduction = damageReduction;
     this.player.windEfficiency = windEfficiency;
     this.player.reefProtection = reefProtection;
 
+    this.player.paddleWheels = Boolean(tier.paddleWheels);
+    this.player.boneRam = Boolean(tier.boneRam);
+    this.player.celestialAura = Boolean(tier.celestialAura);
     this.player.width = tier.width;
     this.player.length = tier.length;
     this.player.masts = tier.masts;
@@ -239,7 +481,6 @@ class GameEngine {
     this.difficultyId = diffId;
     this.difficulty = this.difficulties[diffId];
 
-    // Update UI buttons
     document.querySelectorAll('[data-diff-btn]').forEach(btn => {
       if (btn.getAttribute('data-diff-btn') === diffId) {
         btn.classList.add('active');
@@ -264,6 +505,78 @@ class GameEngine {
     this.canvas.height = window.innerHeight;
     this.camera.width = this.canvas.width;
     this.camera.height = this.canvas.height;
+  }
+
+  // Mobile Touch & History Guards to prevent accidental app exits, edge-swipe back, or pull-to-refresh
+  initMobileExitProtection() {
+    // 1. Block pinch-zoom, double-tap zoom, and long-press context menu
+    window.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+
+    window.addEventListener('gesturestart', (e) => {
+      e.preventDefault();
+    }, { passive: false });
+
+    // 2. Intercept screen-edge touches (within 28px of left/right edge) so iOS/Android Back-Swipe doesn't exit the game!
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches && e.touches.length > 1) {
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
+      if (e.touches && e.touches.length === 1) {
+        const t = e.touches[0];
+        const nearHorizontalEdge = t.clientX < 28 || t.clientX > window.innerWidth - 28;
+        const nearBottomBar = t.clientY > window.innerHeight - 18;
+        if ((nearHorizontalEdge || nearBottomBar) && e.cancelable) {
+          const isInteractiveBtn = e.target && e.target.closest('button, a, input, select');
+          if (!isInteractiveBtn) {
+            e.preventDefault();
+          }
+        }
+      }
+    }, { passive: false });
+
+    // 3. Prevent browser pull-to-refresh & rubber-banding while allowing smooth scrolling inside modals
+    window.addEventListener('touchmove', (e) => {
+      const scrollable = e.target && e.target.closest('.modal-content-box, .phone-screen, .compact-status-pill');
+      if (!scrollable) {
+        if (e.cancelable) e.preventDefault();
+      }
+    }, { passive: false });
+
+    // 4. History Back-Button / Back-Swipe Trap: closes open modals or protects active voyage instead of exiting!
+    try {
+      window.history.pushState({ corsairGuard: true }, '');
+      window.addEventListener('popstate', () => {
+        try {
+          window.history.pushState({ corsairGuard: true }, '');
+        } catch (err) {}
+
+        const openModals = ['loadout-modal', 'achievements-modal', 'menu-modal', 'mod-studio-modal', 'victory-modal'];
+        for (const id of openModals) {
+          const el = document.getElementById(id);
+          if (el && el.style.display === 'flex') {
+            el.style.display = 'none';
+            return;
+          }
+        }
+        const dock = document.getElementById('phone-dock');
+        if (dock && !dock.classList.contains('minimized')) {
+          this.togglePhone(false);
+          return;
+        }
+        this.showBanner('⚓ BACK GESTURE INTERCEPTED — VOYAGE PROTECTED!', 'linear-gradient(90deg, #0284c7, #2563eb)', 2600);
+      });
+    } catch (err) {}
+
+    // 5. Warn before accidental tab close or reload during an active run
+    window.addEventListener('beforeunload', (e) => {
+      if (this.stats && this.stats.voyageSeconds > 10) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
   }
 
   setupInput() {
@@ -353,6 +666,7 @@ class GameEngine {
     bindBtn('touch-brake', () => { this.keys['s'] = true; }, () => { this.keys['s'] = false; });
     bindBtn('touch-drift', () => { this.keys[' '] = true; }, () => { this.keys[' '] = false; });
     bindBtn('touch-fire', () => { this.fireBroadsides(); }, () => {});
+    bindBtn('touch-barrel', () => { this.dropGreekFireBarrel(); }, () => {});
     bindBtn('touch-horn', () => {
       if (window.audioManager) window.audioManager.playFoghorn();
       this.pirateManager.foghornReaction(this.player.x, this.player.y);
@@ -471,7 +785,7 @@ class GameEngine {
     }, { passive: false });
   }
 
-  // --- Broadsides, Swivel Culverins & Greek Fire Barrels ---
+  // --- Broadsides, Swivel Culverins, Mortar Bombards & Greek Fire Barrels ---
 
   fireBroadsides() {
     const p = this.player;
@@ -483,6 +797,10 @@ class GameEngine {
 
     // Fire Port (-PI/2) and Starboard (+PI/2) cannonball volleys!
     const spacing = Math.min(12, (p.length * 0.65) / Math.max(1, count));
+    const hasHellfire = (p.hellfireDPS || 0) > 0;
+    const hasLightning = (p.chainLightningChance || 0) > 0;
+    const projColor = hasLightning ? '#c084fc' : (hasHellfire ? '#fb923c' : '#fde047');
+
     for (const side of [-1, 1]) {
       const sideAngle = p.angle + side * (Math.PI / 2);
       for (let i = 0; i < count; i++) {
@@ -501,8 +819,11 @@ class GameEngine {
           vy: Math.sin(fireAngle) * speed + Math.sin(p.angle) * p.speed * 0.35,
           damage: p.cannonDamage,
           life: p.cannonRange / speed,
-          radius: 4.5,
-          color: '#fde047'
+          radius: hasHellfire ? 5.2 : 4.5,
+          color: projColor,
+          hellfireDPS: p.hellfireDPS || 0,
+          slowOnHit: p.slowOnHit || 0,
+          chainLightningChance: p.chainLightningChance || 0
         });
 
         this.spawnMuzzleSmoke(sx, sy);
@@ -513,6 +834,20 @@ class GameEngine {
   fireSwivelCulverin(dt) {
     const p = this.player;
     if (p.swivelGuns <= 0) return;
+
+    // Legendary Swivel Point-Defense: intercept nearby enemy cannonballs!
+    if ((p.pointDefenseChance || 0) > 0 && this.pirateManager && this.pirateManager.cannonballs) {
+      for (let i = this.pirateManager.cannonballs.length - 1; i >= 0; i--) {
+        const cb = this.pirateManager.cannonballs[i];
+        if (!cb._pdChecked && Math.hypot(cb.x - p.x, cb.y - p.y) < 95) {
+          cb._pdChecked = true;
+          if (Math.random() < p.pointDefenseChance) {
+            this.spawnMuzzleSmoke(cb.x, cb.y);
+            this.pirateManager.cannonballs.splice(i, 1);
+          }
+        }
+      }
+    }
 
     p.swivelTimer -= dt;
     if (p.swivelTimer > 0) return;
@@ -540,47 +875,108 @@ class GameEngine {
 
     if (!bestTarget) return;
 
-    p.swivelTimer = Math.max(0.65, 2.0 / p.swivelGuns);
+    p.swivelTimer = Math.max(0.45, 2.0 / p.swivelGuns);
     if (window.audioManager) window.audioManager.playSwivelShot();
 
     const aimAngle = Math.atan2(bestTarget.y - p.y, bestTarget.x - p.x);
     this.playerProjectiles.push({
       x: p.x + Math.cos(aimAngle) * 14,
       y: p.y + Math.sin(aimAngle) * 14,
-      vx: Math.cos(aimAngle) * 480,
-      vy: Math.sin(aimAngle) * 480,
-      damage: Math.round(p.cannonDamage * 0.75),
-      life: 1.1,
+      vx: Math.cos(aimAngle) * 490,
+      vy: Math.sin(aimAngle) * 490,
+      damage: Math.round(p.cannonDamage * 0.78),
+      life: 1.15,
       radius: 3.8,
-      color: '#38bdf8'
+      color: '#38bdf8',
+      hellfireDPS: (p.hellfireDPS || 0) * 0.5,
+      slowOnHit: (p.slowOnHit || 0) * 0.65,
+      chainLightningChance: (p.chainLightningChance || 0) * 0.5
     });
     this.spawnMuzzleSmoke(p.x + Math.cos(aimAngle) * 12, p.y + Math.sin(aimAngle) * 12);
   }
 
-  dropGreekFireBarrel() {
+  fireMortarBombard(dt) {
+    const p = this.player;
+    if ((p.mortarCount || 0) <= 0) return;
+
+    p.mortarTimer -= dt;
+    if (p.mortarTimer > 0) return;
+
+    let bestTarget = null;
+    let bestDist = 470;
+
+    if (this.bossManager.activeBoss) {
+      const b = this.bossManager.activeBoss;
+      const bd = Math.hypot(b.x - p.x, b.y - p.y);
+      if (bd < bestDist) {
+        bestDist = bd;
+        bestTarget = b;
+      }
+    }
+
+    if (!bestTarget) {
+      for (const pir of this.pirateManager.pirates) {
+        const d = Math.hypot(pir.x - p.x, pir.y - p.y);
+        if (d < bestDist) {
+          bestDist = d;
+          bestTarget = pir;
+        }
+      }
+    }
+
+    if (!bestTarget) return;
+
+    p.mortarTimer = p.mortarCooldown || 3.5;
+    if (window.audioManager) window.audioManager.playCannonBroadside(2);
+
+    const aimAngle = Math.atan2(bestTarget.y - p.y, bestTarget.x - p.x);
+    const speed = 330;
+    this.playerProjectiles.push({
+      x: p.x,
+      y: p.y,
+      vx: Math.cos(aimAngle) * speed,
+      vy: Math.sin(aimAngle) * speed,
+      damage: p.mortarDamage || 85,
+      life: Math.min(1.6, bestDist / speed + 0.25),
+      radius: 7.5,
+      color: '#f97316',
+      isMortar: true,
+      splashRadius: p.mortarSplashRadius || 65,
+      hellfireDPS: Math.max(12, p.hellfireDPS || 0),
+      slowOnHit: p.slowOnHit || 0
+    });
+    this.spawnMuzzleSmoke(p.x, p.y);
+  }
+
+  dropGreekFireBarrel(isAuto = false) {
     const p = this.player;
     if (p.fireBarrelsCount <= 0) {
-      this.showBanner('🛢️ EQUIP "GREEK FIRE STERN BARRELS" IN LOADOUT [L] TO DROP FIRE KEGS!', 'linear-gradient(90deg, #b45309, #d97706)');
+      if (!isAuto) {
+        this.showBanner('🛢️ EQUIP "GREEK FIRE STERN BARRELS" IN LOADOUT [L] TO DROP FIRE KEGS!', 'linear-gradient(90deg, #b45309, #d97706)');
+      }
       return;
     }
-    if (p.barrelCooldown > 0) return;
+    if (!isAuto && p.barrelCooldown > 0) return;
 
-    p.barrelCooldown = Math.max(1.5, 4.0 / p.fireBarrelsCount);
+    if (!isAuto) {
+      p.barrelCooldown = Math.max(1.2, 3.8 / p.fireBarrelsCount);
+    }
     const bx = p.x - Math.cos(p.angle) * (p.length * 0.65);
     const by = p.y - Math.sin(p.angle) * (p.length * 0.65);
 
     this.droppedFireBarrels.push({
       x: bx,
       y: by,
-      radius: 16,
-      damage: 85 + p.fireBarrelsCount * 25,
-      life: 14.0
+      radius: 18,
+      damage: (p.barrelDamage || 95) + p.fireBarrelsCount * 22,
+      life: 15.0,
+      magnetic: Boolean(p.magneticBarrels)
     });
 
-    if (window.audioManager) window.audioManager.playSplash();
+    if (window.audioManager && !isAuto) window.audioManager.playSplash();
   }
 
-  // --- Shipyard, Ship Tiers & Loadout Store Mechanics ---
+  // --- Shipyard, 10 Ship Tiers, Rarity Market & Loadout Store Mechanics ---
 
   toggleLoadoutModal(open) {
     const modal = document.getElementById('loadout-modal');
@@ -600,12 +996,11 @@ class GameEngine {
     if (!tier) return;
 
     if (tierIndex <= this.unlockedTierIndex) {
-      // Already unlocked — switch to it and trim excess slots if downsizing
+      // Already unlocked — switch to it and refund excess slots if downsizing
       this.currentTierIndex = tierIndex;
       while (this.equippedModules.length > tier.maxSlots) {
-        const removedId = this.equippedModules.pop();
-        const mod = this.loadoutCatalog.find(m => m.id === removedId);
-        if (mod) this.stats.gold += mod.cost;
+        const removed = this.resolveEquippedModule(this.equippedModules.pop());
+        if (removed) this.stats.gold += removed.cost;
       }
       this.recalculateShipStats();
       this.player.hull = this.player.maxHull;
@@ -616,16 +1011,21 @@ class GameEngine {
     }
 
     if (this.stats.gold < tier.cost) {
-      this.showBanner(`🪙 NEED ${tier.cost} GOLD FOR ${tier.name.toUpperCase()}!`, 'linear-gradient(90deg, #b91c1c, #dc2626)');
+      this.showBanner(`🪙 NEED ${tier.cost.toLocaleString()} GOLD FOR ${tier.name.toUpperCase()}!`, 'linear-gradient(90deg, #b91c1c, #dc2626)');
       return;
     }
 
     this.stats.gold -= tier.cost;
     this.unlockedTierIndex = Math.max(this.unlockedTierIndex, tierIndex);
     this.currentTierIndex = tierIndex;
+    if (tier.level > (this.stats.maxTierReached || 1)) {
+      this.stats.maxTierReached = tier.level;
+    }
     this.recalculateShipStats();
     this.player.hull = this.player.maxHull;
+    this.rerollRarityMarket(true);
     this.addScore(tier.cost * 2, `COMMISSIONED ${tier.name.toUpperCase()}`);
+    this.checkAchievements();
 
     if (window.audioManager) window.audioManager.playDoubloonChime();
     this.showBanner(`⚓ COMMISSIONED TIER ${tier.level}: ${tier.name.toUpperCase()} (${tier.maxSlots} LOADOUT SLOTS)!`, 'linear-gradient(90deg, #059669, #10b981)');
@@ -643,23 +1043,71 @@ class GameEngine {
       return;
     }
 
-    if (this.stats.gold < mod.cost) {
-      this.showBanner(`🪙 NEED ${mod.cost} GOLD TO SLOT ${mod.name.toUpperCase()}!`, 'linear-gradient(90deg, #b91c1c, #dc2626)');
+    const instance = this.createModuleInstance(mod, 'basic');
+    if (this.stats.gold < instance.cost) {
+      this.showBanner(`🪙 NEED ${instance.cost} GOLD TO SLOT ${instance.name.toUpperCase()}!`, 'linear-gradient(90deg, #b91c1c, #dc2626)');
       return;
     }
 
-    this.stats.gold -= mod.cost;
-    this.equippedModules.push(modId);
+    this.stats.gold -= instance.cost;
+    this.equippedModules.push(instance);
     this.recalculateShipStats();
+    this.checkAchievements();
     if (window.audioManager) window.audioManager.playDoubloonChime();
+    this.renderLoadoutModalUI();
+    this.updatePhoneUI();
+  }
+
+  equipRarityMarketOffer(offerIndex) {
+    const tier = this.shipTiers[this.currentTierIndex];
+    const offer = this.rarityMarketOffers[offerIndex];
+    if (!tier || !offer) return;
+
+    if (this.equippedModules.length >= tier.maxSlots) {
+      this.showBanner(`⚠️ ALL ${tier.maxSlots} SLOTS FULL ON ${tier.name.toUpperCase()}! UNEQUIP A SLOT OR UPGRADE SHIP TIER!`, 'linear-gradient(90deg, #d97706, #ea580c)');
+      return;
+    }
+
+    if (this.stats.gold < offer.cost) {
+      this.showBanner(`🪙 NEED ${offer.cost.toLocaleString()} GOLD FOR ${offer.rarityName.toUpperCase()} ${offer.name.toUpperCase()}!`, 'linear-gradient(90deg, #b91c1c, #dc2626)');
+      return;
+    }
+
+    this.stats.gold -= offer.cost;
+    this.equippedModules.push(offer);
+
+    // Replace that market slot with a fresh roll!
+    const weights = [
+      { id: 'uncommon', weight: 46 },
+      { id: 'rare', weight: 32 },
+      { id: 'epic', weight: 15 },
+      { id: 'legendary', weight: 7 }
+    ];
+    let r = Math.random() * 100;
+    let nextRarity = 'uncommon';
+    for (const w of weights) {
+      if (r < w.weight) { nextRarity = w.id; break; }
+      r -= w.weight;
+    }
+    const randomBase = this.loadoutCatalog[Math.floor(Math.random() * this.loadoutCatalog.length)];
+    this.rarityMarketOffers[offerIndex] = this.createModuleInstance(randomBase, nextRarity);
+
+    this.recalculateShipStats();
+    this.checkAchievements();
+    if (window.audioManager) window.audioManager.playDoubloonChime();
+    this.showBanner(
+      `${offer.rarityBadge} EQUIPPED ${offer.name.toUpperCase()}! ${offer.specialSauce ? '✨ ' + offer.specialSauce : ''}`,
+      'linear-gradient(90deg, #7c3aed, #d97706)',
+      4500
+    );
     this.renderLoadoutModalUI();
     this.updatePhoneUI();
   }
 
   unequipLoadoutSlot(slotIndex) {
     if (slotIndex < 0 || slotIndex >= this.equippedModules.length) return;
-    const removedId = this.equippedModules.splice(slotIndex, 1)[0];
-    const mod = this.loadoutCatalog.find(m => m.id === removedId);
+    const removedEntry = this.equippedModules.splice(slotIndex, 1)[0];
+    const mod = this.resolveEquippedModule(removedEntry);
     if (mod) {
       this.stats.gold += mod.cost; // 100% refund so players can freely experiment with builds!
     }
@@ -680,7 +1128,6 @@ class GameEngine {
     const cost = inHarbor ? Math.min(25, Math.ceil(missing * 0.15)) : Math.min(60, Math.ceil(missing * 0.35));
 
     if (this.stats.gold < cost) {
-      // Emergency complimentary patch if broke
       this.player.hull = Math.min(this.player.maxHull, this.player.hull + 50);
       this.showBanner('🔨 HARBOR CARPENTERS PATCHED +50 HULL HP ON CREDIT!', 'linear-gradient(90deg, #0284c7, #0ea5e9)');
     } else {
@@ -698,16 +1145,17 @@ class GameEngine {
     const tier = this.shipTiers[this.currentTierIndex];
     const slotsContainer = document.getElementById('loadout-slots-grid');
     const tiersContainer = document.getElementById('loadout-tiers-grid');
+    const rarityContainer = document.getElementById('loadout-rarity-market-grid');
     const storeContainer = document.getElementById('loadout-store-grid');
     const summaryEl = document.getElementById('loadout-ship-summary');
 
-    if (summaryEl) {
+    if (summaryEl && tier) {
       const buildStyle = this.player.unarmedSmugglerBonus
-        ? '🏃 UNARMED SMUGGLER OVERDRIVE (+12% SPEED)'
-        : `💣 ARMED PRIVATEER (${this.player.cannonsPerSide * 2} BROADSIDES)`;
+        ? '🏃 SMUGGLER (+12% SPD & +25% PAY)'
+        : `💣 ${this.player.cannonsPerSide * 2} GUNS (${this.player.cannonDamage} DMG)`;
       summaryEl.innerHTML = `
-        <div class="shipyard-stat-pill"><span>🪙 GOLD:</span><strong class="font-gold">${Math.floor(this.stats.gold)}g</strong></div>
-        <div class="shipyard-stat-pill"><span>🚢 VESSEL:</span><strong class="font-cyan">${tier.name} (Tier ${tier.level})</strong></div>
+        <div class="shipyard-stat-pill"><span>🪙 GOLD:</span><strong class="font-gold">${Math.floor(this.stats.gold).toLocaleString()}g</strong></div>
+        <div class="shipyard-stat-pill"><span>🚢 VESSEL:</span><strong class="font-cyan">Lv.${tier.level} ${tier.name}</strong></div>
         <div class="shipyard-stat-pill"><span>🧩 SLOTS:</span><strong class="font-amber">${this.equippedModules.length} / ${tier.maxSlots}</strong></div>
         <div class="shipyard-stat-pill"><span>📦 HOLD:</span><strong>${this.player.cargoCapacity} Crates</strong></div>
         <div class="shipyard-stat-pill"><span>🛡️ HULL:</span><strong>${Math.ceil(this.player.hull)}/${this.player.maxHull}</strong></div>
@@ -715,15 +1163,17 @@ class GameEngine {
       `;
     }
 
-    // 1. Render Active Ship's Loadout Slots (Click any filled slot to unequip & refund 100%)
-    if (slotsContainer) {
+    // 1. Render Active Ship's Loadout Slots (with Rarity Badges & 100% Gold Refund)
+    if (slotsContainer && tier) {
       let slotsHtml = '';
       for (let s = 0; s < tier.maxSlots; s++) {
-        const modId = this.equippedModules[s];
-        const mod = modId ? this.loadoutCatalog.find(m => m.id === modId) : null;
+        const entry = this.equippedModules[s];
+        const mod = entry ? this.resolveEquippedModule(entry) : null;
         if (mod) {
+          const rarityClass = `slot-rarity-${mod.rarity || 'basic'}`;
           slotsHtml += `
-            <button class="slot-cell filled" onclick="window.game.unequipLoadoutSlot(${s})" title="Click to Unequip & Refund ${mod.cost}g">
+            <button class="slot-cell filled ${rarityClass}" onclick="window.game.unequipLoadoutSlot(${s})" title="${mod.specialSauce ? mod.specialSauce + ' — ' : ''}Click to Unequip & Refund ${mod.cost}g">
+              <span class="slot-rarity-tag" style="color:${mod.rarityColor || '#cbd5e1'};">${mod.rarityBadge || '⚪ BASIC'}</span>
               <span class="slot-icon">${mod.icon}</span>
               <span class="slot-name">${mod.name}</span>
               <span class="slot-refund">✕ REFUND ${mod.cost}g</span>
@@ -742,13 +1192,13 @@ class GameEngine {
       slotsContainer.innerHTML = slotsHtml;
     }
 
-    // 2. Render 6 Ship Tiers Progression (Sloop + 5 Higher Tiers)
+    // 2. Render All 10 Ship Tiers Progression (Lv.1 Harbor Sloop to Lv.10 Celestial Sovereign Ark)
     if (tiersContainer) {
       tiersContainer.innerHTML = this.shipTiers.map((t, idx) => {
         const isCurrent = idx === this.currentTierIndex;
         const isUnlocked = idx <= this.unlockedTierIndex;
         const canAfford = this.stats.gold >= t.cost;
-        let btnLabel = isCurrent ? '✅ ACTIVE VESSEL' : (isUnlocked ? '⛵ BOARD SHIP' : `🪙 BUY (${t.cost}g)`);
+        let btnLabel = isCurrent ? '✅ ACTIVE VESSEL' : (isUnlocked ? '⛵ BOARD SHIP' : `🪙 BUY (${t.cost.toLocaleString()}g)`);
         let btnClass = isCurrent ? 'tier-btn active' : (isUnlocked || canAfford ? 'tier-btn buyable' : 'tier-btn locked');
 
         return `
@@ -767,13 +1217,43 @@ class GameEngine {
       }).join('');
     }
 
-    // 3. Render 8 Loadout Modules Store
-    if (storeContainer) {
+    // 3. Render Rotating Special Rarity Market (Uncommon, Rare, Epic & Legendary with Special Sauce!)
+    if (rarityContainer && tier) {
+      if (!this.rarityMarketOffers || this.rarityMarketOffers.length === 0) {
+        this.rerollRarityMarket(true);
+      }
+      rarityContainer.innerHTML = this.rarityMarketOffers.map((offer, idx) => {
+        const canBuy = this.stats.gold >= offer.cost && this.equippedModules.length < tier.maxSlots;
+        return `
+          <div class="module-store-card rarity-${offer.rarity}">
+            <div class="rarity-banner-row">
+              <span class="rarity-pill" style="color:${offer.rarityColor}; border-color:${offer.rarityColor};">${offer.rarityBadge}</span>
+              <span class="rarity-mult-tag">${offer.statMult}x STATS</span>
+            </div>
+            <div class="mod-card-top">
+              <span class="mod-icon">${offer.icon}</span>
+              <div class="mod-title-group">
+                <div class="mod-name" style="color:${offer.rarityColor};">${offer.name}</div>
+                <div class="mod-stat">${offer.shortStat}</div>
+              </div>
+              <span class="mod-cost">${offer.cost.toLocaleString()}g</span>
+            </div>
+            ${offer.specialSauce ? `<div class="mod-special-sauce">✨ <strong>SPECIAL SAUCE:</strong> ${offer.specialSauce}</div>` : ''}
+            <button class="mod-buy-btn ${canBuy ? '' : 'disabled'}" onclick="window.game.equipRarityMarketOffer(${idx})">
+              ⚡ BUY & SLOT ${offer.rarityName.toUpperCase()} (${offer.cost.toLocaleString()}g)
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 4. Render Standard Basic Shipwright Catalog (All 14 Items Always Available at 1.0x Basic Rarity)
+    if (storeContainer && tier) {
       storeContainer.innerHTML = this.loadoutCatalog.map(mod => {
-        const countEquipped = this.equippedModules.filter(id => id === mod.id).length;
+        const countEquipped = this.equippedModules.filter(e => (typeof e === 'string' ? e === mod.id : e.baseId === mod.id)).length;
         const canBuy = this.stats.gold >= mod.cost && this.equippedModules.length < tier.maxSlots;
         return `
-          <div class="module-store-card">
+          <div class="module-store-card rarity-basic">
             <div class="mod-card-top">
               <span class="mod-icon">${mod.icon}</span>
               <div class="mod-title-group">
@@ -784,7 +1264,7 @@ class GameEngine {
             </div>
             <div class="mod-desc">${mod.description}</div>
             <button class="mod-buy-btn ${canBuy ? '' : 'disabled'}" onclick="window.game.equipLoadoutModule('${mod.id}')">
-              ➕ SLOT MODULE (${mod.cost}g • 1 SLOT)
+              ➕ SLOT BASIC MODULE (${mod.cost}g • 1 SLOT)
             </button>
           </div>
         `;
@@ -835,12 +1315,13 @@ class GameEngine {
     const distUnits = Math.hypot(destination.dockX - origin.dockX, destination.dockY - origin.dockY);
     const leagues = (distUnits / 950).toFixed(1);
 
-    // Crates scale directly with player's Cargo Hold capacity so slotting Cargo Hold modules makes contracts HUGE!
+    // Crates scale directly with player's Cargo Hold capacity + Royal Letter of Marque payoutBonus!
     const crates = this.player.cargoCapacity;
     const diffMult = this.difficulty.payoutMultiplier || 1.0;
     const smugglerMult = this.player.unarmedSmugglerBonus ? 1.25 : 1.0;
+    const marqueMult = 1.0 + (this.player.payoutBonus || 0);
 
-    const baseGold = Math.round((45 + parseFloat(leagues) * 28 + crates * good.baseValuePerCrate) * diffMult * smugglerMult);
+    const baseGold = Math.round((45 + parseFloat(leagues) * 28 + crates * good.baseValuePerCrate) * diffMult * smugglerMult * marqueMult);
     const tipGold = Math.round(baseGold * (0.25 + Math.random() * 0.20));
     const totalGold = baseGold + tipGold;
 
@@ -876,7 +1357,6 @@ class GameEngine {
     if (!this.currentOrder) return;
     this.currentOrder.accepted = true;
 
-    // If player is already right at the Origin Port Wharf, load cargo immediately!
     const distToOrigin = Math.hypot(this.player.x - this.currentOrder.origin.dockX, this.player.y - this.currentOrder.origin.dockY);
     if (distToOrigin < 160) {
       this.confirmCargoLoading();
@@ -963,9 +1443,14 @@ class GameEngine {
     } else if (this.weather === 'HURRICANE_SQUALL') {
       earnedTip += Math.round(o.baseGold * 0.30);
       reviewComment = `Sailing through a howling hurricane squall to deliver ${o.crates} crates?! Legendary captain! +30% Storm Bonus!`;
+      this.unlockAchievement('storm_rider');
     } else if (this.weather === 'SIREN_GLOW') {
       earnedTip += Math.round(o.baseGold * 0.35);
       reviewComment = `Golden tradewinds delivery at sunset! Extra doubloons from the Merchant Guild!`;
+    }
+
+    if (this.player.unarmedSmugglerBonus) {
+      this.unlockAchievement('smuggler_king');
     }
 
     const totalGold = earnedBase + earnedTip;
@@ -977,10 +1462,11 @@ class GameEngine {
     this.stats.reputation = ((this.stats.reputation * (this.stats.deliveries - 1) + stars) / this.stats.deliveries).toFixed(2);
     this.addScore(scoreEarned, `DELIVERED ${o.crates} CRATES`);
 
-    // Auto-patch +35 Hull HP when completing a delivery at port!
-    this.player.hull = Math.min(this.player.maxHull, this.player.hull + 35);
+    // Auto-patch +40 Hull HP & refresh the Rarity Market upon completing a delivery at port!
+    this.player.hull = Math.min(this.player.maxHull, this.player.hull + 40);
+    this.rerollRarityMarket(true);
+    this.checkAchievements();
 
-    // Confetti & gold particles burst
     const colors = ['#fbbf24', '#38bdf8', '#34d399', '#f43f5e', '#a855f7'];
     for (let i = 0; i < 55; i++) {
       this.particles.push({
@@ -1007,7 +1493,7 @@ class GameEngine {
     if (!modal) return;
     modal.style.display = 'flex';
     document.getElementById('review-stars').innerText = '★'.repeat(stars) + '☆'.repeat(5 - stars);
-    document.getElementById('review-payout').innerText = `+${goldEarned} GOLD (+${scoreEarned.toLocaleString()} PTS)`;
+    document.getElementById('review-payout').innerText = `+${goldEarned.toLocaleString()} GOLD (+${scoreEarned.toLocaleString()} PTS)`;
     document.getElementById('review-text').innerText = `"${comment}"`;
   }
 
@@ -1015,10 +1501,11 @@ class GameEngine {
     document.getElementById('review-modal').style.display = 'none';
   }
 
-  // --- Combat, Damage, Salvage & Boss Outcomes ---
+  // --- Combat, Damage, Salvage, 7-Boss Gauntlet Victory & Endless Cycles ---
 
   addScore(points, reason) {
-    const pts = Math.round(points);
+    const bonusMult = 1.0 + (this.player ? (this.player.scoreBonus || 0) : 0);
+    const pts = Math.round(points * bonusMult);
     this.stats.score += pts;
     if (this.stats.score > this.stats.highScore) {
       this.stats.highScore = this.stats.score;
@@ -1035,19 +1522,28 @@ class GameEngine {
         life: 1.8
       });
     }
+    this.checkAchievements();
   }
 
-  applyDamageToPlayer(rawDamage, sourceName) {
+  applyDamageToPlayer(rawDamage, sourceName, sourcePirate = null) {
     if (this.isPlayerInSafeHarbor()) return; // Safe inside port mooring ring!
-    const reduced = rawDamage * (1 - (this.player.damageReduction || 0));
+    const stormDef = this.weather === 'HURRICANE_SQUALL' ? (this.player.stormArmor || 0) : 0;
+    const totalDR = Math.min(0.85, (this.player.damageReduction || 0) + stormDef);
+    const reduced = rawDamage * (1 - totalDR);
     this.player.hull = Math.max(0, this.player.hull - reduced);
     this.player.hitFlash = 1.0;
+
+    // Legendary Iron Hull Thorns Reflection!
+    if ((this.player.thornsReflect || 0) > 0 && sourcePirate && sourcePirate.hp > 0) {
+      const reflected = rawDamage * this.player.thornsReflect;
+      sourcePirate.hp -= reflected;
+      sourcePirate.hitFlash = 1.0;
+    }
 
     if (rawDamage >= 5 && window.audioManager) {
       window.audioManager.playHitWood();
     }
 
-    // Check if Shipwrecked (Hull == 0)
     if (this.player.hull <= 0) {
       this.handlePlayerShipwreck(sourceName);
     }
@@ -1055,7 +1551,6 @@ class GameEngine {
 
   handlePlayerShipwreck(sourceName) {
     if (window.audioManager) window.audioManager.playExplosion();
-    // Tow to Port Royal, keep ship & upgrades, deduct 15% salvage fee
     const salvageFee = Math.floor(this.stats.gold * 0.15);
     this.stats.gold = Math.max(0, this.stats.gold - salvageFee);
     this.player.hull = this.player.maxHull;
@@ -1074,7 +1569,6 @@ class GameEngine {
   onPirateSunk(pirate, byPlayer = true) {
     if (window.audioManager) window.audioManager.playExplosion();
 
-    // Explosion timber particles
     for (let i = 0; i < 24; i++) {
       this.particles.push({
         x: pirate.x,
@@ -1086,21 +1580,29 @@ class GameEngine {
       });
     }
 
-    // Drop floating salvage chest
     this.pirateManager.spawnSalvageChest(pirate.x, pirate.y, Math.round(pirate.bountyGold * 0.65), pirate.name);
 
     if (byPlayer) {
-      this.stats.gold += pirate.bountyGold;
+      const bountyMult = 1.0 + (this.player.bountyBonus || 0);
+      const earnedGold = Math.round(pirate.bountyGold * bountyMult);
+      this.stats.gold += earnedGold;
       this.stats.piratesSunk += 1;
       const pts = Math.round(pirate.bountyScore * (this.difficulty.scoreMultiplier || 1.0));
       this.addScore(pts, `SUNK ${pirate.name.toUpperCase()}`);
+      this.checkAchievements();
     }
   }
 
   collectSalvageChest(chest) {
     if (window.audioManager) window.audioManager.playDoubloonChime();
-    this.stats.gold += chest.gold;
-    this.addScore(chest.gold * 5 * (this.difficulty.scoreMultiplier || 1.0), `PLUNDER CHEST +${chest.gold}G`);
+    const salvageMult = 1.0 + (this.player.salvageGoldBonus || 0);
+    const goldEarned = Math.round(chest.gold * salvageMult);
+    this.stats.gold += goldEarned;
+    if ((this.player.chestHeal || 0) > 0) {
+      this.player.hull = Math.min(this.player.maxHull, this.player.hull + this.player.chestHeal);
+    }
+    this.addScore(goldEarned * 5 * (this.difficulty.scoreMultiplier || 1.0), `PLUNDER CHEST +${goldEarned}G`);
+    this.checkAchievements();
   }
 
   onBossSlain(boss) {
@@ -1109,38 +1611,132 @@ class GameEngine {
       window.audioManager.playDoubloonChime();
     }
 
-    this.stats.gold += boss.bountyGold;
+    const bountyMult = 1.0 + (this.player.bountyBonus || 0);
+    const goldReward = Math.round(boss.bountyGold * bountyMult);
+    this.stats.gold += goldReward;
     this.stats.bossesSlain += 1;
+
+    this.slainBossIdsInCycle.add(boss.id);
+    this.allTimeSlainBossIds.add(boss.id);
+    try {
+      localStorage.setItem('corsairdash_slain_bosses', JSON.stringify(Array.from(this.allTimeSlainBossIds)));
+    } catch (e) {}
+
     const pts = Math.round(boss.bountyScore * (this.difficulty.scoreMultiplier || 1.0));
     this.addScore(pts, `SLAIN ${boss.name}`);
 
-    // Spawn 3 Legendary Salvage Chests around the slain Boss!
-    for (let i = 0; i < 3; i++) {
-      const a = (i * Math.PI * 2) / 3;
+    // Spawn 4 Legendary Salvage Chests around the slain Boss!
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI * 2) / 4;
       this.pirateManager.spawnSalvageChest(
-        boss.x + Math.cos(a) * 55,
-        boss.y + Math.sin(a) * 55,
-        250,
+        boss.x + Math.cos(a) * 58,
+        boss.y + Math.sin(a) * 58,
+        Math.round(280 * (this.bossCycle || 1)),
         'LEGENDARY BOSS HOARD'
       );
     }
 
-    this.showBanner(
-      `🏆 LEGENDARY VICTORY! ${boss.name} SLAIN FOR +${boss.bountyGold} GOLD & +${pts.toLocaleString()} SCORE! 🏆`,
-      'linear-gradient(90deg, #ca8a04, #eab308)'
-    );
+    // Refresh Rarity Market with high-tier loot after slaying a Boss!
+    this.rerollRarityMarket(true);
+    this.checkAchievements();
+
+    // Check Win Condition:
+    // 1) All 3 new Elder Bosses (Karkinos, Charybdis, Solar Armada) slain, OR
+    // 2) All 7 Bosses in the current cycle slain!
+    const totalBossCatalogCount = (this.data.bossMonsters || []).length || 7;
+    const threeNewEldersSlain =
+      this.slainBossIdsInCycle.has('karkinos') &&
+      this.slainBossIdsInCycle.has('charybdis') &&
+      this.slainBossIdsInCycle.has('armada_flagship');
+    const allSevenSlainInCycle = this.slainBossIdsInCycle.size >= totalBossCatalogCount;
+
+    if (allSevenSlainInCycle || (threeNewEldersSlain && !this.victoryTriggeredThisRun)) {
+      const completedCycle = this.bossCycle;
+      this.victoryTriggeredThisRun = true;
+
+      if (allSevenSlainInCycle) {
+        // Recycle all 7 bosses into the next Endless Cycle with Ascended Mutator Buffs!
+        this.bossCycle += 1;
+        this.slainBossIdsInCycle.clear();
+        try {
+          const savedBestCycle = parseInt(localStorage.getItem('corsairdash_best_cycle') || '1', 10) || 1;
+          if (this.bossCycle > savedBestCycle) {
+            localStorage.setItem('corsairdash_best_cycle', String(this.bossCycle));
+          }
+        } catch (e) {}
+      }
+
+      this.checkAchievements();
+      this.showVictoryModal(completedCycle, allSevenSlainInCycle);
+    } else {
+      const remaining = totalBossCatalogCount - this.slainBossIdsInCycle.size;
+      this.showBanner(
+        `🏆 ${boss.name} SLAIN! +${goldReward.toLocaleString()}G & +${pts.toLocaleString()} PTS! (${this.slainBossIdsInCycle.size}/${totalBossCatalogCount} CYCLE ${this.bossCycle} BOSSES SLAIN — ${remaining} LEFT)! 🏆`,
+        'linear-gradient(90deg, #ca8a04, #eab308)',
+        6500
+      );
+    }
+
     this.updateBossHudUI();
+  }
+
+  showVictoryModal(completedCycle = 1, fullSevenCleared = false) {
+    const modal = document.getElementById('victory-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+
+    const titleEl = document.getElementById('victory-title');
+    const descEl = document.getElementById('victory-desc');
+    const statsEl = document.getElementById('victory-stats-box');
+
+    const mutators = this.data.bossCycleMutators || [];
+    const nextMut = mutators[Math.min(this.bossCycle - 1, mutators.length - 1)] || {
+      badge: `🔥 CYCLE ${this.bossCycle} ASCENDED`,
+      perkDesc: 'Recycled Bosses gain massive HP, Speed & Frenzy!'
+    };
+
+    if (titleEl) {
+      titleEl.innerText = fullSevenCleared
+        ? `👑 CYCLE ${completedCycle} CONQUERED — ALL 7 SOVEREIGN BOSSES SLAIN! 👑`
+        : `👑 CAMPAIGN VICTORY — ELDER TITANS CONQUERED! 👑`;
+    }
+    if (descEl) {
+      descEl.innerHTML = fullSevenCleared
+        ? `You have vanquished all <strong>7 Legendary Terrors of the Archipelago</strong> in Cycle ${completedCycle}! The seas now enter <strong>ENDLESS CYCLE ${this.bossCycle} (${nextMut.badge})</strong>: all 7 bosses recycle with <em>${nextMut.perkDesc}</em> and pirate swarm density accelerates further!`
+        : `You have slain the <strong>Elder Archipelago Titans</strong> (Karkinos, Charybdis & the El Dorado Solar Armada)! You have won the campaign — keep sailing to finish all 7 bosses and enter <strong>Endless Cycle II+</strong> where bosses recycle with ferocious new buffs!`;
+    }
+    if (statsEl) {
+      const tier = this.shipTiers[this.currentTierIndex];
+      statsEl.innerHTML = `
+        <div style="font-family:'Press Start 2P', monospace; font-size:11px; color:#fde047; margin-bottom:6px;">
+          🏆 SCORE: ${this.stats.score.toLocaleString()} • 👑 HIGH SCORE: ${this.stats.highScore.toLocaleString()}
+        </div>
+        <div style="font-size:12px; color:#e2e8f0;">
+          🚢 Vessel: <strong>Lv.${tier ? tier.level : 1} ${tier ? tier.name : 'Sloop'}</strong> • 💀 Total Bosses Slain: <strong>${this.stats.bossesSlain}</strong> • 🏴‍☠️ Pirates Sunk: <strong>${this.stats.piratesSunk}</strong>
+        </div>
+      `;
+    }
+  }
+
+  closeVictoryModalAndContinue() {
+    const modal = document.getElementById('victory-modal');
+    if (modal) modal.style.display = 'none';
+    this.showBanner(
+      `🌊 ENDLESS VOYAGE CONTINUES — CYCLE ${this.bossCycle} ACTIVE! HUNT THE RECYCLED TITANS FOR RECORD HIGH SCORES!`,
+      'linear-gradient(90deg, #7c3aed, #db2777)',
+      6000
+    );
   }
 
   onBossOutrun(boss) {
     if (window.audioManager) window.audioManager.playDoubloonChime();
-    this.stats.gold += 120;
+    this.stats.gold += 140;
     this.stats.bossesOutrun += 1;
-    const pts = Math.round(600 * (this.difficulty.scoreMultiplier || 1.0));
+    const pts = Math.round(700 * (this.difficulty.scoreMultiplier || 1.0));
     this.addScore(pts, `OUTRAN ${boss.name}`);
 
     this.showBanner(
-      `⛵ DARING ESCAPE! YOU OUTRAN ${boss.name} (+120 GOLD & +${pts} PTS)!`,
+      `⛵ DARING ESCAPE! YOU OUTRAN ${boss.name} (+140 GOLD & +${pts} PTS)!`,
       'linear-gradient(90deg, #0284c7, #06b6d4)'
     );
     this.updateBossHudUI();
@@ -1165,15 +1761,130 @@ class GameEngine {
     const hpFill = document.getElementById('boss-hud-hp-fill');
     const metaEl = document.getElementById('boss-hud-meta');
 
-    if (titleEl) titleEl.innerText = `${b.name} (BOUNTY: +${b.bountyGold}G)`;
+    if (titleEl) titleEl.innerText = `${b.name} (BOUNTY: +${b.bountyGold.toLocaleString()}G)`;
     if (hpFill) hpFill.style.width = `${hpPct}%`;
-    if (metaEl) metaEl.innerText = `HP: ${Math.ceil(b.hp)}/${b.maxHp} • OUTRUN DIST: ${dist}/${esc}m`;
+    if (metaEl) metaEl.innerText = `HP: ${Math.ceil(b.hp).toLocaleString()}/${b.maxHp.toLocaleString()} • OUTRUN: ${dist}/${esc}m ${b.perkDesc ? '• ' + b.perkDesc : ''}`;
   }
 
-  // --- Event Director (Boss Monsters & Maritime Weather Events) ---
+  // --- Achievements & High Score Hall of Fame System ---
+
+  unlockAchievement(achId) {
+    if (!achId || this.unlockedAchievements.has(achId)) return;
+    const catalog = this.data.achievementsCatalog || [];
+    const ach = catalog.find(a => a.id === achId);
+    if (!ach) return;
+
+    this.unlockedAchievements.add(achId);
+    try {
+      localStorage.setItem('corsairdash_achievements', JSON.stringify(Array.from(this.unlockedAchievements)));
+    } catch (e) {}
+
+    if (window.audioManager) window.audioManager.playDoubloonChime();
+    this.floatingTexts.push({
+      x: this.player.x,
+      y: this.player.y - 48,
+      text: `🏆 ACHIEVEMENT: ${ach.title.toUpperCase()}!`,
+      color: '#fbbf24',
+      life: 2.8
+    });
+  }
+
+  checkAchievements() {
+    if (this.stats.deliveries >= 1) this.unlockAchievement('first_delivery');
+    if (this.stats.cratesHauled >= 100) this.unlockAchievement('cargo_tycoon');
+    if (this.stats.piratesSunk >= 10) this.unlockAchievement('pirate_hunter');
+    if (this.stats.piratesSunk >= 50) this.unlockAchievement('scourge_of_pirates');
+    if (this.stats.gold >= 10000) this.unlockAchievement('gold_hoarder');
+    if ((this.stats.maxTierReached || 1) >= 6) this.unlockAchievement('man_o_war');
+    if ((this.stats.maxTierReached || 1) >= 10) this.unlockAchievement('celestial_ark');
+    if (this.equippedModules.length >= 20) this.unlockAchievement('all_slots_20');
+    if (this.equippedModules.some(e => typeof e === 'object' && e && e.rarity === 'legendary')) {
+      this.unlockAchievement('legendary_mod');
+    }
+    if (this.stats.bossesSlain >= 1) this.unlockAchievement('first_boss');
+    if (
+      this.allTimeSlainBossIds.has('karkinos') &&
+      this.allTimeSlainBossIds.has('charybdis') &&
+      this.allTimeSlainBossIds.has('armada_flagship')
+    ) {
+      this.unlockAchievement('elder_trio');
+    }
+    if (this.allTimeSlainBossIds.size >= 7) {
+      this.unlockAchievement('seven_seas_victor');
+    }
+    if (this.bossCycle >= 2) this.unlockAchievement('cycle_2_ascended');
+    if (this.bossCycle >= 3) this.unlockAchievement('cycle_3_elder');
+    if (this.stats.highScore >= 100000 || this.stats.score >= 100000) this.unlockAchievement('high_roller_100k');
+    if (this.stats.highScore >= 500000 || this.stats.score >= 500000) this.unlockAchievement('high_roller_500k');
+  }
+
+  toggleAchievementsModal(open) {
+    const modal = document.getElementById('achievements-modal');
+    if (!modal) return;
+    if (open === undefined) {
+      open = modal.style.display === 'none' || !modal.style.display;
+    }
+    modal.style.display = open ? 'flex' : 'none';
+    if (open) {
+      if (window.audioManager) window.audioManager.resume();
+      this.checkAchievements();
+      this.renderAchievementsModalUI();
+    }
+  }
+
+  renderAchievementsModalUI() {
+    const summaryEl = document.getElementById('achievements-highscore-summary');
+    const bossGridEl = document.getElementById('achievements-boss-checklist');
+    const achGridEl = document.getElementById('achievements-grid');
+
+    const catalog = this.data.achievementsCatalog || [];
+    const bosses = this.data.bossMonsters || [];
+
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <div class="shipyard-stat-pill"><span>👑 ALL-TIME HI-SCORE:</span><strong class="font-gold">${this.stats.highScore.toLocaleString()}</strong></div>
+        <div class="shipyard-stat-pill"><span>🏆 VOYAGE SCORE:</span><strong class="font-cyan">${this.stats.score.toLocaleString()}</strong></div>
+        <div class="shipyard-stat-pill"><span>🔁 BOSS CYCLE:</span><strong class="font-amber">CYCLE ${this.bossCycle} (${this.slainBossIdsInCycle.size}/${bosses.length})</strong></div>
+        <div class="shipyard-stat-pill"><span>💀 BOSSES SLAIN:</span><strong>${this.stats.bossesSlain}</strong></div>
+        <div class="shipyard-stat-pill"><span>🏴‍☠️ PIRATES SUNK:</span><strong>${this.stats.piratesSunk}</strong></div>
+        <div class="shipyard-stat-pill"><span>🎖️ UNLOCKED:</span><strong style="color:#34d399;">${this.unlockedAchievements.size} / ${catalog.length}</strong></div>
+      `;
+    }
+
+    if (bossGridEl) {
+      bossGridEl.innerHTML = bosses.map((b, idx) => {
+        const slainThisCycle = this.slainBossIdsInCycle.has(b.id);
+        const slainEver = this.allTimeSlainBossIds.has(b.id);
+        return `
+          <div class="boss-check-card ${slainThisCycle ? 'slain-cycle' : (slainEver ? 'slain-ever' : 'unslain')}">
+            <div class="boss-check-num">#${idx + 1} ${slainThisCycle ? '✅ SLAIN (CYCLE ' + this.bossCycle + ')' : (slainEver ? '🏆 SLAIN (PAST CYCLE)' : '⚔️ UNTAMED')}</div>
+            <div class="boss-check-name">${b.name}</div>
+            <div class="boss-check-meta">${b.subtitle} • +${b.bountyGold.toLocaleString()}g</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    if (achGridEl) {
+      achGridEl.innerHTML = catalog.map(ach => {
+        const unlocked = this.unlockedAchievements.has(ach.id);
+        return `
+          <div class="achievement-card ${unlocked ? 'unlocked' : 'locked'}">
+            <div class="ach-icon">${unlocked ? ach.icon : '🔒'}</div>
+            <div class="ach-info">
+              <div class="ach-title">${ach.title}</div>
+              <div class="ach-desc">${ach.desc}</div>
+            </div>
+            <div class="ach-badge">${unlocked ? '✅ UNLOCKED' : 'LOCKED'}</div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // --- Event Director (7 Boss Monsters & Maritime Weather Events) ---
 
   updateEventDirector(dt) {
-    // Shift wind angle gently over time
     this.windShiftTimer += dt;
     if (this.windShiftTimer > 18) {
       this.windShiftTimer = 0;
@@ -1190,20 +1901,30 @@ class GameEngine {
       this.nextEventTimer -= dt;
       if (this.nextEventTimer <= 0) {
         this.triggerRandomMaritimeEvent();
-        this.nextEventTimer = (this.difficulty.bossIntervalSec || 80) * (0.75 + Math.random() * 0.4);
+        // Recycled boss cycles spawn events slightly faster!
+        const cycleSpeedup = Math.max(0.55, 1.0 - (this.bossCycle - 1) * 0.10);
+        this.nextEventTimer = (this.difficulty.bossIntervalSec || 75) * cycleSpeedup * (0.75 + Math.random() * 0.35);
       }
     }
   }
 
   triggerRandomMaritimeEvent(forcedType) {
-    const pool = ['BOSS_KRAKEN', 'BOSS_DUTCHMAN', 'BOSS_MEGALODON', 'BOSS_LEVIATHAN', 'HURRICANE_SQUALL', 'SIREN_GLOW', 'BLACK_ARMADA'];
+    const pool = [
+      'BOSS_AUTO',
+      'BOSS_AUTO',
+      'BOSS_AUTO',
+      'HURRICANE_SQUALL',
+      'SIREN_GLOW',
+      'BLACK_ARMADA'
+    ];
     const chosen = forcedType || pool[Math.floor(Math.random() * pool.length)];
     this.activeEvent = chosen;
 
     if (chosen.startsWith('BOSS_')) {
-      const bossId = chosen.replace('BOSS_', '').toLowerCase();
+      const rawId = chosen.replace('BOSS_', '').toLowerCase();
+      const bossId = rawId === 'auto' ? null : rawId;
       const boss = this.bossManager.spawnBoss(bossId, this.player.x, this.player.y, this);
-      this.eventTimeRemaining = 95;
+      this.eventTimeRemaining = 100;
       if (boss) {
         this.showBanner(boss.warningText, 'linear-gradient(90deg, #7e22ce, #db2777)', 7000);
       }
@@ -1218,10 +1939,11 @@ class GameEngine {
       this.showBanner('🌅 GOLDEN HORIZON: SIREN\'S SUNSET TRADEWINDS! +35% CHARTER BONUS TIPS! 🌅', 'linear-gradient(90deg, #b45309, #f59e0b)', 6000);
     } else if (chosen === 'BLACK_ARMADA') {
       this.eventTimeRemaining = 50;
-      for (let i = 0; i < 5; i++) {
-        this.pirateManager.spawnPirate(this.player.x, this.player.y, this.difficulty, this.stats.voyageSeconds, true);
+      const packSize = 5 + Math.min(6, (this.bossCycle - 1) * 2);
+      for (let i = 0; i < packSize; i++) {
+        this.pirateManager.spawnPirate(this.player.x, this.player.y, this.difficulty, this.stats.voyageSeconds, true, this);
       }
-      this.showBanner('🏴‍☠️ BLACK ARMADA AMBUSH! PIRATE HUNTING PACK SPOTTED ON THE HORIZON! 🏴‍☠️', 'linear-gradient(90deg, #991b1b, #ef4444)', 6000);
+      this.showBanner(`🏴‍☠️ BLACK ARMADA AMBUSH! ${packSize} PIRATE HUNTERS SPOTTED ON THE HORIZON! 🏴‍☠️`, 'linear-gradient(90deg, #991b1b, #ef4444)', 6000);
     }
   }
 
@@ -1433,7 +2155,7 @@ class GameEngine {
   }
 
   updatePlayerProjectilesAndBarrels(dt) {
-    // 1. Update Player Cannonballs & Swivel Shots
+    // 1. Update Player Cannonballs, Swivel Shots & Mortar Shells
     for (let i = this.playerProjectiles.length - 1; i >= 0; i--) {
       const proj = this.playerProjectiles[i];
       proj.x += proj.vx * dt;
@@ -1441,15 +2163,25 @@ class GameEngine {
       proj.life -= dt;
 
       let hit = false;
+      let hitTarget = null;
 
       // Hit Boss Monster?
       const boss = this.bossManager.activeBoss;
-      if (boss && Math.hypot(proj.x - boss.x, proj.y - boss.y) < 54) {
+      if (boss && Math.hypot(proj.x - boss.x, proj.y - boss.y) < 56) {
         boss.hp -= proj.damage;
         boss.hitFlash = 1.0;
+        if (proj.hellfireDPS > 0) {
+          boss.burnDPS = Math.max(boss.burnDPS || 0, proj.hellfireDPS);
+          boss.burnTimer = 4.0;
+        }
+        if (proj.slowOnHit > 0) {
+          boss.slowFactor = Math.max(boss.slowFactor || 0, proj.slowOnHit);
+          boss.slowTimer = 3.5;
+        }
         if (window.audioManager) window.audioManager.playHitWood();
         this.spawnMuzzleSmoke(proj.x, proj.y);
         hit = true;
+        hitTarget = boss;
       }
 
       // Hit Pirate Ship?
@@ -1459,8 +2191,17 @@ class GameEngine {
           if (Math.hypot(proj.x - pir.x, proj.y - pir.y) < pir.width * 0.95) {
             pir.hp -= proj.damage;
             pir.hitFlash = 1.0;
+            if (proj.hellfireDPS > 0) {
+              pir.burnDPS = Math.max(pir.burnDPS || 0, proj.hellfireDPS);
+              pir.burnTimer = 4.0;
+            }
+            if (proj.slowOnHit > 0) {
+              pir.slowFactor = Math.max(pir.slowFactor || 0, proj.slowOnHit);
+              pir.slowTimer = 4.0;
+            }
             if (window.audioManager) window.audioManager.playHitWood();
             this.spawnMuzzleSmoke(proj.x, proj.y);
+            hitTarget = pir;
             if (pir.hp <= 0) {
               this.onPirateSunk(pir, true);
               this.pirateManager.pirates.splice(pIdx, 1);
@@ -1485,13 +2226,85 @@ class GameEngine {
         }
       }
 
+      // Trigger Chain-Lightning on Hit (Legendary / Special Sauce)!
+      if (hit && hitTarget && (proj.chainLightningChance || 0) > 0 && Math.random() < proj.chainLightningChance) {
+        let arcTarget = null;
+        let arcDist = 210;
+        for (const pir of this.pirateManager.pirates) {
+          if (pir === hitTarget || pir.hp <= 0) continue;
+          const d = Math.hypot(pir.x - proj.x, pir.y - proj.y);
+          if (d < arcDist) {
+            arcDist = d;
+            arcTarget = pir;
+          }
+        }
+        if (!arcTarget && boss && boss !== hitTarget && Math.hypot(boss.x - proj.x, boss.y - proj.y) < 230) {
+          arcTarget = boss;
+        }
+        if (arcTarget) {
+          const arcDmg = Math.round(proj.damage * 0.75);
+          arcTarget.hp -= arcDmg;
+          arcTarget.hitFlash = 1.0;
+          this.lightningArcs.push({
+            x1: proj.x,
+            y1: proj.y,
+            x2: arcTarget.x,
+            y2: arcTarget.y,
+            life: 0.25
+          });
+          if (arcTarget.hp <= 0 && this.pirateManager.pirates.includes(arcTarget)) {
+            const idx = this.pirateManager.pirates.indexOf(arcTarget);
+            if (idx !== -1) {
+              this.onPirateSunk(arcTarget, true);
+              this.pirateManager.pirates.splice(idx, 1);
+            }
+          }
+        }
+      }
+
+      // Mortar Bombard AoE Splash Explosion on Hit or Max Range!
+      if (proj.isMortar && (hit || proj.life <= 0)) {
+        const splashR = proj.splashRadius || 68;
+        if (window.audioManager) window.audioManager.playExplosion();
+        for (let k = 0; k < 22; k++) {
+          this.particles.push({
+            x: proj.x,
+            y: proj.y,
+            vx: (Math.random() - 0.5) * 165,
+            vy: (Math.random() - 0.5) * 165,
+            life: 0.85,
+            color: k % 2 === 0 ? '#f97316' : '#fde047'
+          });
+        }
+        for (let pIdx = this.pirateManager.pirates.length - 1; pIdx >= 0; pIdx--) {
+          const pir = this.pirateManager.pirates[pIdx];
+          if (pir === hitTarget) continue;
+          if (Math.hypot(pir.x - proj.x, pir.y - proj.y) < splashR) {
+            pir.hp -= Math.round(proj.damage * 0.75);
+            pir.hitFlash = 1.0;
+            pir.burnDPS = Math.max(pir.burnDPS || 0, 12);
+            pir.burnTimer = 3.5;
+            if (pir.hp <= 0) {
+              this.onPirateSunk(pir, true);
+              this.pirateManager.pirates.splice(pIdx, 1);
+            }
+          }
+        }
+        if (boss && boss !== hitTarget && Math.hypot(boss.x - proj.x, boss.y - proj.y) < splashR + 30) {
+          boss.hp -= Math.round(proj.damage * 0.75);
+          boss.hitFlash = 1.0;
+        }
+        this.playerProjectiles.splice(i, 1);
+        continue;
+      }
+
       if (hit || proj.life <= 0) {
         if (!hit) this.spawnWaterSplash(proj.x, proj.y, 4);
         this.playerProjectiles.splice(i, 1);
       }
     }
 
-    // 2. Update Dropped Greek Fire Barrels
+    // 2. Update Dropped Greek Fire Barrels (with Optional Legendary Magnetism!)
     for (let i = this.droppedFireBarrels.length - 1; i >= 0; i--) {
       const b = this.droppedFireBarrels[i];
       b.life -= dt;
@@ -1503,9 +2316,17 @@ class GameEngine {
       let detonated = false;
       for (let pIdx = this.pirateManager.pirates.length - 1; pIdx >= 0; pIdx--) {
         const pir = this.pirateManager.pirates[pIdx];
-        if (Math.hypot(b.x - pir.x, b.y - pir.y) < b.radius + pir.width) {
+        const dist = Math.hypot(b.x - pir.x, b.y - pir.y);
+        if (b.magnetic && dist < 145 && dist > 10) {
+          const pullA = Math.atan2(b.y - pir.y, b.x - pir.x);
+          pir.x += Math.cos(pullA) * 85 * dt;
+          pir.y += Math.sin(pullA) * 85 * dt;
+        }
+        if (dist < b.radius + pir.width) {
           pir.hp -= b.damage;
           pir.hitFlash = 1.0;
+          pir.burnDPS = Math.max(pir.burnDPS || 0, 18);
+          pir.burnTimer = 4.0;
           detonated = true;
           if (pir.hp <= 0) {
             this.onPirateSunk(pir, true);
@@ -1518,6 +2339,8 @@ class GameEngine {
       if (boss && Math.hypot(b.x - boss.x, b.y - boss.y) < 62) {
         boss.hp -= b.damage;
         boss.hitFlash = 1.0;
+        boss.burnDPS = Math.max(boss.burnDPS || 0, 22);
+        boss.burnTimer = 4.0;
         detonated = true;
       }
 
@@ -1571,6 +2394,17 @@ class GameEngine {
 
     this.updatePlayerPhysics(dt);
     this.fireSwivelCulverin(dt);
+    this.fireMortarBombard(dt);
+
+    // Automatic Greek Fire Stern Barrel Dispenser (Epic/Legendary Greek Fire perk!)
+    if ((this.player.autoDropBarrelInterval || 0) > 0 && this.player.fireBarrelsCount > 0) {
+      this.player.autoBarrelTimer = (this.player.autoBarrelTimer || 0) + dt;
+      if (this.player.autoBarrelTimer >= this.player.autoDropBarrelInterval) {
+        this.player.autoBarrelTimer = 0;
+        this.dropGreekFireBarrel(true);
+      }
+    }
+
     this.updatePlayerProjectilesAndBarrels(dt);
 
     this.pirateManager.update(dt, this.player, this.difficulty, this.stats.voyageSeconds, this);
@@ -1622,6 +2456,11 @@ class GameEngine {
       if (pt.life <= 0) this.particles.splice(i, 1);
     }
 
+    for (let i = this.lightningArcs.length - 1; i >= 0; i--) {
+      this.lightningArcs[i].life -= dt;
+      if (this.lightningArcs[i].life <= 0) this.lightningArcs.splice(i, 1);
+    }
+
     for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
       const ft = this.floatingTexts[i];
       ft.y -= 28 * dt;
@@ -1651,8 +2490,13 @@ class GameEngine {
       cannonFill.style.width = `${readyPct}%`;
     }
 
+    const touchBarrelBtn = document.getElementById('touch-barrel');
+    if (touchBarrelBtn) {
+      touchBarrelBtn.style.display = p.fireBarrelsCount > 0 ? 'flex' : 'none';
+    }
+
     const goldEl = document.getElementById('today-earnings');
-    if (goldEl) goldEl.innerText = `🪙 ${Math.floor(this.stats.gold)}g`;
+    if (goldEl) goldEl.innerText = `🪙 ${Math.floor(this.stats.gold).toLocaleString()}g`;
 
     const scoreEl = document.getElementById('today-score');
     if (scoreEl) scoreEl.innerText = `🏆 ${this.stats.score.toLocaleString()}`;
@@ -1665,13 +2509,14 @@ class GameEngine {
       const dirs = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
       const normA = ((this.windAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
       const dirStr = dirs[Math.round((normA / (Math.PI * 2)) * 8) % 8];
-      windEl.innerText = `🧭 ${dirStr} ${this.windSpeed}KT • 🏴‍☠️ ${this.pirateManager.pirates.length}`;
+      const cycleStr = this.bossCycle > 1 ? ` • C${this.bossCycle}` : '';
+      windEl.innerText = `🧭 ${dirStr} ${this.windSpeed}KT • 🏴‍☠️ ${this.pirateManager.pirates.length}${cycleStr}`;
     }
 
     const tier = this.shipTiers[this.currentTierIndex];
     const loadoutBtn = document.getElementById('loadout-hud-btn');
     if (loadoutBtn && tier) {
-      loadoutBtn.innerText = `⚓ ${tier.name.split(' ').pop().toUpperCase()} (${this.equippedModules.length}/${tier.maxSlots}) [L]`;
+      loadoutBtn.innerText = `⚓ Lv.${tier.level} (${this.equippedModules.length}/${tier.maxSlots})`;
     }
   }
 
@@ -1766,7 +2611,7 @@ class GameEngine {
     if (!screen) return;
 
     const tier = this.shipTiers[this.currentTierIndex];
-    const activeCap = this.pirateManager.getActivePirateCap(this.difficulty, this.stats.voyageSeconds, this.modPirateDensityMult);
+    const activeCap = this.pirateManager.getActivePirateCap(this.difficulty, this.stats.voyageSeconds, this.modPirateDensityMult, this);
 
     if (this.appState === 'SEARCHING') {
       screen.innerHTML = `
@@ -1779,14 +2624,17 @@ class GameEngine {
             <div class="stat-cell"><div class="label">SHIP TIER</div><div class="val orange">Lv.${tier.level} ${tier.name.split(' ').pop()}</div></div>
             <div class="stat-cell"><div class="label">CARGO HOLD</div><div class="val green">${this.player.cargoCapacity} Crates</div></div>
             <div class="stat-cell"><div class="label">PIRATE SWARM</div><div class="val" style="color:#f87171;">${this.pirateManager.pirates.length}/${activeCap}</div></div>
-            <div class="stat-cell"><div class="label">HIGH SCORE</div><div class="val green">${this.stats.highScore.toLocaleString()}</div></div>
+            <div class="stat-cell"><div class="label">BOSS CYCLE</div><div class="val green">Cycle ${this.bossCycle} (${this.slainBossIdsInCycle.size}/7)</div></div>
           </div>
 
           <button class="phone-action-btn success" style="margin-top: 12px;" onclick="window.game.generateRandomOrder(true)">
             🕊️ REQUEST IMMEDIATE PORT CHARTER
           </button>
           <button class="phone-action-btn" style="margin-top: 8px; background: linear-gradient(180deg, #0284c7, #0369a1);" onclick="window.game.toggleLoadoutModal(true)">
-            ⚓ OPEN SHIPYARD & LOADOUT (${this.equippedModules.length}/${tier.maxSlots} SLOTS)
+            ⚓ OPEN SHIPYARD & RARITY STORE (${this.equippedModules.length}/${tier.maxSlots})
+          </button>
+          <button class="phone-action-btn" style="margin-top: 8px; background: linear-gradient(180deg, #ca8a04, #a16207);" onclick="window.game.toggleAchievementsModal(true)">
+            🏆 ACHIEVEMENTS & HIGH SCORES
           </button>
           <button class="phone-action-btn secondary" style="margin-top: 8px;" onclick="window.game.togglePhone(false)">
             ⛵ MINIMIZE LEDGER & SAIL
@@ -1964,20 +2812,23 @@ class GameEngine {
   modGrantGold(amount = 2000) {
     this.stats.gold += amount;
     if (window.audioManager) window.audioManager.playDoubloonChime();
+    this.checkAchievements();
     this.updateGaugesUI();
     this.renderLoadoutModalUI();
-    this.showBanner(`🛠️ MOD STUDIO: GRANTED +${amount} GOLD DOUBLOONS!`, 'linear-gradient(90deg, #ca8a04, #eab308)');
+    this.showBanner(`🛠️ MOD STUDIO: GRANTED +${amount.toLocaleString()} GOLD DOUBLOONS!`, 'linear-gradient(90deg, #ca8a04, #eab308)');
   }
 
   modUnlockAllShips() {
     this.unlockedTierIndex = this.shipTiers.length - 1;
     this.currentTierIndex = this.shipTiers.length - 1;
+    this.stats.maxTierReached = 10;
     this.recalculateShipStats();
     this.player.hull = this.player.maxHull;
+    this.checkAchievements();
     if (window.audioManager) window.audioManager.playDoubloonChime();
     this.toggleModStudioModal(false);
     this.toggleLoadoutModal(true);
-    this.showBanner('🛠️ MOD STUDIO: UNLOCKED ALL 6 SHIP TIERS INCLUDING MAN-O\'-WAR (12 SLOTS)!', 'linear-gradient(90deg, #7c3aed, #9333ea)');
+    this.showBanner('🛠️ MOD STUDIO: UNLOCKED ALL 10 SHIP TIERS INCLUDING CELESTIAL SOVEREIGN ARK (20 SLOTS)!', 'linear-gradient(90deg, #7c3aed, #9333ea)');
   }
 
   modExportSnapshot() {
@@ -1986,6 +2837,7 @@ class GameEngine {
       timestamp: new Date().toISOString(),
       difficulty: this.difficultyId,
       shipTierLevel: this.currentTierIndex + 1,
+      bossCycle: this.bossCycle,
       equippedModules: this.equippedModules,
       gold: Math.floor(this.stats.gold),
       score: this.stats.score,
@@ -2052,7 +2904,7 @@ class GameEngine {
       ctx.beginPath();
       ctx.arc(0, 0, 9, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#f97316';
+      ctx.strokeStyle = b.magnetic ? '#c084fc' : '#f97316';
       ctx.lineWidth = 3;
       ctx.stroke();
       ctx.restore();
@@ -2061,22 +2913,39 @@ class GameEngine {
     // 4. Render Pirates, Trade Vessels & Floating Plunder Chests
     this.pirateManager.render(ctx, this.camera);
 
-    // 5. Render Active Boss Monster (Kraken, Dutchman, Megalodon, Leviathan)
+    // 5. Render Active Boss Monster (All 7 Bosses + Recycled Mutator Aura)
     this.bossManager.render(ctx, this.camera);
 
-    // 6. Render Player Cannonballs & Swivel Shots
+    // 6. Render Player Cannonballs, Swivel Shots & Mortar Shells
     for (const proj of this.playerProjectiles) {
       ctx.save();
       ctx.fillStyle = proj.color || '#fde047';
-      ctx.shadowColor = '#f59e0b';
-      ctx.shadowBlur = 8;
+      ctx.shadowColor = proj.isMortar ? '#ea580c' : '#f59e0b';
+      ctx.shadowBlur = proj.isMortar ? 12 : 8;
       ctx.beginPath();
       ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
 
-    // 7. Render Player Sailing Ship (Scales visually across all 6 Ship Tiers!)
+    // 6b. Render Chain-Lightning Arcs
+    for (const arc of this.lightningArcs) {
+      ctx.save();
+      ctx.strokeStyle = '#e879f9';
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 10;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(arc.x1, arc.y1);
+      const midX = (arc.x1 + arc.x2) / 2 + (Math.random() - 0.5) * 18;
+      const midY = (arc.y1 + arc.y2) / 2 + (Math.random() - 0.5) * 18;
+      ctx.lineTo(midX, midY);
+      ctx.lineTo(arc.x2, arc.y2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 7. Render Player Sailing Ship (Scales visually across all 10 Ship Tiers!)
     this.renderPlayerShip(ctx);
 
     // 8. Render Explosion & Splash Particles
@@ -2085,7 +2954,7 @@ class GameEngine {
       ctx.fillRect(pt.x - 2, pt.y - 2, 4, 4);
     }
 
-    // 9. Render Floating Score & Plunder Popups
+    // 9. Render Floating Score, Plunder & Achievement Popups
     for (const ft of this.floatingTexts) {
       ctx.save();
       ctx.font = 'bold 10px "Press Start 2P", monospace';
@@ -2113,11 +2982,47 @@ class GameEngine {
     const len = p.length;
     const wid = p.width;
 
+    // Tier 10 Celestial Sovereign Ark Golden Constellation Halo!
+    if (p.celestialAura) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.55)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([8, 6]);
+      ctx.rotate(Date.now() * 0.0015);
+      ctx.beginPath();
+      ctx.arc(0, 0, len * 0.62, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Hull shadow on water
     ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     ctx.beginPath();
     ctx.ellipse(3, 4, len * 0.54, wid * 0.55, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Tier 8 Steam-Assisted Ironclad Paddle-Wheels!
+    if (p.paddleWheels) {
+      ctx.fillStyle = '#d97706';
+      ctx.strokeStyle = '#fef08a';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(-6, -wid * 0.68, 12, 5);
+      ctx.strokeRect(-6, -wid * 0.68, 12, 5);
+      ctx.fillRect(-6, wid * 0.68 - 5, 12, 5);
+      ctx.strokeRect(-6, wid * 0.68 - 5, 12, 5);
+    }
+
+    // Tier 9 Krakenbone Dreadnought Ivory Ramming Tusks!
+    if (p.boneRam) {
+      ctx.strokeStyle = '#fef3c7';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(len * 0.45, -wid * 0.25);
+      ctx.quadraticCurveTo(len * 0.72, -wid * 0.42, len * 0.82, -wid * 0.12);
+      ctx.moveTo(len * 0.45, wid * 0.25);
+      ctx.quadraticCurveTo(len * 0.72, wid * 0.42, len * 0.82, wid * 0.12);
+      ctx.stroke();
+    }
 
     // Bowsprit spar extending forward
     ctx.strokeStyle = '#fde68a';
@@ -2160,19 +3065,18 @@ class GameEngine {
     }
 
     // Render Broadside Cannon Barrels protruding from Port & Starboard gunwales
-    const guns = Math.min(9, p.cannonsPerSide);
+    const guns = Math.min(12, p.cannonsPerSide);
     ctx.fillStyle = '#1e293b';
     for (let g = 0; g < guns; g++) {
-      const gx = -len * 0.28 + (g * (len * 0.54)) / Math.max(1, guns - 1 || 1);
+      const gx = -len * 0.30 + (g * (len * 0.58)) / Math.max(1, guns - 1 || 1);
       ctx.fillRect(gx - 1.5, -wid * 0.62, 3, 5);
       ctx.fillRect(gx - 1.5, wid * 0.62 - 5, 3, 5);
     }
 
-    // Render Masts & Billowing Sails (1 to 4 Masts depending on Ship Tier!)
+    // Render Masts & Billowing Sails (1 to 5 Masts depending on Ship Tier!)
     const masts = p.masts || 1;
     for (let m = 0; m < masts; m++) {
-      const mx = masts === 1 ? 0 : (-len * 0.26 + (m * (len * 0.54)) / (masts - 1));
-      // Yardarm
+      const mx = masts === 1 ? 0 : (-len * 0.28 + (m * (len * 0.56)) / (masts - 1));
       ctx.strokeStyle = '#fde68a';
       ctx.lineWidth = 2.5;
       ctx.beginPath();
@@ -2180,7 +3084,6 @@ class GameEngine {
       ctx.lineTo(mx, wid * 0.78);
       ctx.stroke();
 
-      // Billowing Sail Canvas
       ctx.fillStyle = p.sailColor;
       ctx.beginPath();
       ctx.moveTo(mx, -wid * 0.75);
@@ -2190,7 +3093,6 @@ class GameEngine {
       ctx.closePath();
       ctx.fill();
 
-      // Mast pole cap
       ctx.fillStyle = '#78350f';
       ctx.beginPath();
       ctx.arc(mx, 0, 3.5, 0, Math.PI * 2);
@@ -2227,7 +3129,6 @@ class GameEngine {
       ctx.fillStyle = 'rgba(15, 23, 42, 0.25)';
       ctx.fillRect(0, 0, w, h);
 
-      // Driving rain streaks
       ctx.strokeStyle = 'rgba(186, 230, 253, 0.32)';
       ctx.lineWidth = 1.5;
       for (let i = 0; i < 28; i++) {
@@ -2260,11 +3161,9 @@ class GameEngine {
     const toMapX = (x) => ((x - bounds.minX) / spanX) * w;
     const toMapY = (y) => ((y - bounds.minY) / spanY) * h;
 
-    // Deep nautical chart background
     mctx.fillStyle = '#082f49';
     mctx.fillRect(0, 0, w, h);
 
-    // Rhumb line route
     if (this.rhumbRoute && this.rhumbRoute.length > 1) {
       mctx.strokeStyle = '#fde047';
       mctx.lineWidth = 2;
@@ -2277,7 +3176,6 @@ class GameEngine {
       mctx.stroke();
     }
 
-    // 12 Island Ports
     for (const isl of this.islands) {
       const mx = toMapX(isl.x);
       const my = toMapY(isl.y);
@@ -2290,13 +3188,11 @@ class GameEngine {
       mctx.stroke();
     }
 
-    // Swarming Pirates (Red dots)
     mctx.fillStyle = '#ef4444';
     for (const pir of this.pirateManager.pirates) {
       mctx.fillRect(toMapX(pir.x) - 1.5, toMapY(pir.y) - 1.5, 3, 3);
     }
 
-    // Active Boss Monster (Pulsing Purple/Gold Skull Beacon)
     if (this.bossManager.activeBoss) {
       const b = this.bossManager.activeBoss;
       mctx.fillStyle = '#e879f9';
@@ -2305,7 +3201,6 @@ class GameEngine {
       mctx.fill();
     }
 
-    // Player Ship Arrow
     const px = toMapX(this.player.x);
     const py = toMapY(this.player.y);
     mctx.save();

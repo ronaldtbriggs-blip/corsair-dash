@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#041322">
-  <title>CORSAIRDASH: Sovereign Seas (32-Bit / 64-Bit Maritime Arcade)</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>CORSAIRDASH: Sovereign Seas (32-Bit / 64-Bit Maritime Roguelike)</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -17,18 +20,20 @@
 
     <!-- Top Status Bar -->
     <header id="top-hud">
-      <!-- Left: Gold, High Score, Wind & Pirate Swarm Status Pill -->
+      <!-- Left: Gold, Score, High Score, Boss Cycle & Wind/Pirate Swarm Status Pill -->
       <div class="hud-pill compact-status-pill">
         <span id="today-earnings" class="hud-value font-gold">🪙 180g</span>
         <span class="hud-sep">•</span>
         <span id="today-score" class="hud-value font-cyan">🏆 0</span>
         <span class="hud-sep">•</span>
         <span id="today-highscore" class="hud-value font-amber">👑 HI: 0</span>
-        <span class="hud-sep">•</span>
-        <span id="weather-status" class="hud-value">🧭 NE 18KT • 🏴‍☠️ 5</span>
+        <span class="hud-sep hide-xs">•</span>
+        <span id="boss-cycle-hud" class="hud-value hide-xs" style="color:#e879f9;">💀 0/7 (C1)</span>
+        <span class="hud-sep hide-sm">•</span>
+        <span id="weather-status" class="hud-value hide-sm">🧭 NE 18KT • 🏴‍☠️ 5</span>
       </div>
 
-      <!-- Right: Charter Ledger, Shipyard Loadout, Mod Studio & Menu -->
+      <!-- Right: Shipyard Loadout, Repair, Achievements/High Score & Menu (Cheat Menu hidden unless enabled on start menu) -->
       <div class="hud-actions-cluster">
         <button id="loadout-hud-btn" class="menu-toggle-btn loadout-btn" onclick="window.game && window.game.toggleLoadoutModal(true)">
           ⚓ SLOOP (0/2) [L]
@@ -36,11 +41,14 @@
         <button class="menu-toggle-btn" onclick="window.game && window.game.repairHullAtPort()" title="Repair Hull Integrity">
           🔨 REPAIR
         </button>
-        <button class="menu-toggle-btn mod-btn" onclick="window.game && window.game.toggleModStudioModal(true)">
-          🛠️ MODS
+        <button id="achievements-hud-btn" class="menu-toggle-btn" style="border-color:#fde047; color:#fde047;" onclick="window.openAchievementsModal()">
+          🏆 RANKS
+        </button>
+        <button id="hud-mod-btn" class="menu-toggle-btn mod-btn" style="display: none;" onclick="window.game && window.game.toggleModStudioModal(true)">
+          🛠️ CHEATS
         </button>
         <button id="menu-btn" class="menu-toggle-btn" onclick="window.game && window.game.toggleMenuModal(true)">
-          🪗 SHANTY / MENU
+          🪗 MENU
         </button>
       </div>
     </header>
@@ -129,13 +137,14 @@
       </div>
     </div>
 
-    <!-- ⚓ SHIPYARD, 6 SHIP TIERS & MODULAR LOADOUT STORE MODAL [L] -->
+    <!-- ⚓ SHIPYARD, 10 SHIP TIERS & RARITY LOADOUT STORE MODAL [L] -->
     <div id="loadout-modal" class="game-modal" style="display: none;">
       <div class="modal-content-box wide-shipyard">
         <div class="menu-modal-header">
-          <h2 class="modal-title" style="margin-bottom: 0;">⚓ ROYAL DRYDOCK, SHIP TIERS &amp; LOADOUT SLOTS</h2>
-          <div style="display: flex; gap: 8px;">
-            <button class="tier-btn buyable" style="padding: 6px 12px; font-size: 8px;" onclick="window.game && window.game.repairHullAtPort()">🔨 REPAIR HULL</button>
+          <h2 class="modal-title" style="margin-bottom: 0;">⚓ ROYAL DRYDOCK, 10 SHIP TIERS &amp; RARITY LOADOUTS</h2>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button class="tier-btn buyable" style="padding: 6px 10px; font-size: 7.5px;" onclick="window.game && window.game.repairHullAtPort()">🔨 REPAIR</button>
+            <button class="tier-btn" style="padding: 6px 10px; font-size: 7.5px; background:#7c3aed; border-color:#c084fc;" onclick="window.game && window.game.rerollRarityMarket(false)">🎲 REROLL MARKET (75g)</button>
             <button class="modal-close-btn" onclick="window.game && window.game.toggleLoadoutModal(false)">✕</button>
           </div>
         </div>
@@ -144,26 +153,82 @@
 
         <!-- 1. Active Loadout Slots -->
         <div class="section-heading">
-          <span>🧩 EQUIPPED LOADOUT SLOTS (CLICK ANY SLOT TO UNEQUIP &amp; REFUND 100% GOLD)</span>
-          <span style="color:#fde047; font-size:7.5px;">0 GUN MODULES = +12% SMUGGLER SPEED &amp; +25% PAYOUT!</span>
+          <span>🧩 EQUIPPED LOADOUT SLOTS (TAP ANY SLOT TO UNEQUIP &amp; REFUND 100% GOLD)</span>
+          <span style="color:#fde047; font-size:7px;">0 GUN MODULES = +12% SMUGGLER SPEED &amp; +25% PAYOUT!</span>
         </div>
         <div id="loadout-slots-grid" class="slots-grid"></div>
 
-        <!-- 2. 6 Ship Tiers (Sloop -> Schooner -> Brigantine -> Fluyt -> Frigate -> Man-o'-War) -->
+        <!-- 2. 10 Ship Tiers (Lv.1 Sloop -> Lv.10 Celestial Sovereign Ark) -->
         <div class="section-heading">
-          <span>🚢 6 VESSEL TIERS (UPGRADE FOR MORE LOADOUT SLOTS, BASE HOLD &amp; HULL)</span>
+          <span>🚢 10 VESSEL TIERS (UPGRADE UP TO 20 LOADOUT SLOTS, TITAN HULLS &amp; 48 CRATES)</span>
         </div>
         <div id="loadout-tiers-grid" class="tiers-grid"></div>
 
-        <!-- 3. 8 Modular Upgrades Store -->
+        <!-- 3. Rotating Special Rarity Market (Uncommon, Rare, Epic, Legendary with Special Sauce!) -->
+        <div class="section-heading" style="color: #f472b6;">
+          <span>🎲 SPECIAL RARITY MARKET (MULTIPLIED BONUSES + SPECIAL ABILITIES! REFRESHES EACH DELIVERY)</span>
+          <button class="tier-btn" style="padding: 4px 8px; font-size: 7px; background:#7c3aed; border-color:#e879f9;" onclick="window.game && window.game.rerollRarityMarket(false)">🎲 REROLL (75g)</button>
+        </div>
+        <div id="loadout-rarity-market-grid" class="modules-store-grid" style="margin-bottom: 14px;"></div>
+
+        <!-- 4. Standard Basic Module Catalog (Always Available, No Extra Special Sauce) -->
         <div class="section-heading">
-          <span>🛠️ SHIPWRIGHT MODULE STORE (EACH PURCHASE SLOTS INTO AN OPEN SLOT)</span>
+          <span>🛠️ STANDARD SHIPWRIGHT CATALOG (⚪ BASIC TIER — ALWAYS IN STOCK, NO SPECIAL SAUCE)</span>
         </div>
         <div id="loadout-store-grid" class="modules-store-grid"></div>
 
         <button class="btn-arcade green" style="margin-top: 14px;" onclick="window.game && window.game.toggleLoadoutModal(false)">
           ⛵ WEIGH ANCHOR &amp; RETURN TO SEA
         </button>
+      </div>
+    </div>
+
+    <!-- 🏆 ACHIEVEMENTS, HIGH SCORES & 7-BOSS HUNT MODAL (Accessible from Start Menu & In-Game!) -->
+    <div id="achievements-modal" class="game-modal" style="display: none;">
+      <div class="modal-content-box wide-shipyard">
+        <div class="menu-modal-header">
+          <h2 class="modal-title" style="margin-bottom: 0;">🏆 HALL OF FAME: HIGH SCORES, 7-BOSS GAUNTLET &amp; ACHIEVEMENTS</h2>
+          <button class="modal-close-btn" onclick="window.closeAchievementsModal()">✕</button>
+        </div>
+
+        <div id="achievements-highscore-banner" class="shipyard-summary-bar"></div>
+
+        <div class="section-heading" style="color:#e879f9;">
+          <span>💀 7 LEGENDARY SEA BOSSES — GAUNTLET PROGRESS (SLAY ALL 7 TO WIN &amp; ASCEND TO NEXT CYCLE!)</span>
+          <span id="boss-cycle-badge-label" style="color:#fde047; font-size:7.5px;">CYCLE I</span>
+        </div>
+        <div id="boss-checklist-grid" class="tiers-grid"></div>
+
+        <div class="section-heading">
+          <span>🎖️ MARITIME ACHIEVEMENTS (UNLOCK FOR BONUS GOLD &amp; HIGH SCORE POINTS)</span>
+          <span id="achievements-count-label" style="color:#34d399; font-size:7.5px;">0 / 17 UNLOCKED</span>
+        </div>
+        <div id="achievements-list-grid" class="modules-store-grid"></div>
+
+        <button class="btn-arcade blue" style="margin-top: 14px;" onclick="window.closeAchievementsModal()">
+          ⚓ CLOSE HALL OF FAME
+        </button>
+      </div>
+    </div>
+
+    <!-- 👑 CAMPAIGN VICTORY & ENDLESS ROGUELIKE ASCENSION MODAL -->
+    <div id="victory-modal" class="game-modal" style="display: none;">
+      <div class="modal-content-box" style="border-color: #fde047; box-shadow: 0 0 50px rgba(250, 204, 21, 0.55);">
+        <div style="font-size: 46px; margin-bottom: 6px;">👑🐙🐉🏆</div>
+        <h2 id="victory-modal-title" class="modal-title" style="color: #fde047; font-size: 16px;">SOVEREIGN OF THE SEVEN SEAS!</h2>
+        <div id="victory-modal-subtitle" style="font-size: 15px; font-weight: 700; color: #34d399; margin-bottom: 10px;">
+          ALL 7 LEGENDARY SEA MONSTER BOSSES SLAIN!
+        </div>
+        <div id="victory-modal-body" style="background: #1e293b; border: 2px solid #eab308; border-radius: 10px; padding: 12px; font-size: 13px; color: #e2e8f0; margin-bottom: 14px; line-height: 1.5; text-align: left;">
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="btn-arcade green" style="flex: 2;" onclick="window.game && window.game.closeVictoryModalAndContinue()">
+            ♾️ CONTINUE INTO ENDLESS ASCENSION (BOSSES RECYCLE WITH BUFFS!)
+          </button>
+          <button class="btn-arcade blue" style="flex: 1;" onclick="window.game && window.game.closeVictoryModalAndContinue(); window.openAchievementsModal();">
+            🏆 VIEW ACHIEVEMENTS
+          </button>
+        </div>
       </div>
     </div>
 
@@ -211,11 +276,13 @@
 
         <!-- 3. Quick Actions -->
         <div class="menu-section">
-          <div class="menu-section-title">🧭 HELM &amp; DECK COMMANDS</div>
+          <div class="menu-section-title">🧭 HELM, HALL OF FAME &amp; DECK COMMANDS</div>
           <div class="menu-btn-grid">
+            <button class="menu-opt-btn" style="border-color:#fde047; color:#fde047;" onclick="window.game && window.game.toggleMenuModal(false); window.openAchievementsModal();">🏆 ACHIEVEMENTS &amp; HI-SCORES</button>
             <button class="menu-opt-btn" onclick="window.game && window.game.toggleLoadoutModal(true); window.game.toggleMenuModal(false)">⚓ SHIPYARD &amp; SLOTS</button>
             <button class="menu-opt-btn" onclick="window.game && window.game.repairHullAtPort()">🔨 REPAIR HULL</button>
             <button class="menu-opt-btn" onclick="window.game && window.game.resetPlayerVehicle()">🏰 TOW TO PORT ROYAL</button>
+            <button class="menu-opt-btn" onclick="window.toggleFullscreenMode()">⛶ FULLSCREEN LOCK</button>
             <button class="menu-opt-btn" onclick="document.getElementById('crt-layer').classList.toggle('disabled')">📺 TOGGLE VIGNETTE</button>
           </div>
         </div>
@@ -224,33 +291,36 @@
       </div>
     </div>
 
-    <!-- 🛠️ UNIVERSAL MODDER HOLODECK STUDIO MODAL -->
+    <!-- 🛠️ UNIVERSAL MODDER HOLODECK STUDIO / CHEAT MODAL (Only visible if Cheat Option enabled on Start Menu) -->
     <div id="mod-studio-modal" class="game-modal" style="display: none;">
       <div class="modal-content-box">
         <div class="menu-modal-header">
-          <h2 class="modal-title" style="color: #e879f9; margin-bottom: 0;">🛠️ UNIVERSAL MODDER HOLODECK STUDIO</h2>
+          <h2 class="modal-title" style="color: #e879f9; margin-bottom: 0;">🛠️ SANDBOX CHEAT &amp; MOD STUDIO</h2>
           <button class="modal-close-btn" onclick="window.game && window.game.toggleModStudioModal(false)">✕</button>
         </div>
         <p class="modal-subtitle">
-          Live runtime mutators, Boss Monster event spawners, and JSON modpack tools powered by <code>ronaldtbriggs-blip/universal-modder</code>.
+          Sandbox cheat spawners and JSON modpack tools powered by <code>ronaldtbriggs-blip/universal-modder</code>.
         </p>
 
         <div class="menu-section">
-          <div class="menu-section-title">💀 INSTANT BOSS MONSTER EVENT SPAWNER (FIGHT OR OUTRUN)</div>
+          <div class="menu-section-title">💀 INSTANT 7-BOSS MONSTER SPAWNER (FIGHT OR OUTRUN)</div>
           <div class="menu-btn-grid">
-            <button class="menu-opt-btn" style="border-color:#a855f7;" onclick="window.game && window.game.modSpawnBoss('kraken')">🐙 SPAWN ABYSSAL KRAKEN</button>
-            <button class="menu-opt-btn" style="border-color:#10b981;" onclick="window.game && window.game.modSpawnBoss('dutchman')">👻 SPAWN FLYING DUTCHMAN</button>
-            <button class="menu-opt-btn" style="border-color:#ef4444;" onclick="window.game && window.game.modSpawnBoss('megalodon')">🦈 SPAWN MEGALODON</button>
-            <button class="menu-opt-btn" style="border-color:#06b6d4;" onclick="window.game && window.game.modSpawnBoss('leviathan')">🐉 SPAWN SEA SERPENT</button>
+            <button class="menu-opt-btn" style="border-color:#a855f7;" onclick="window.game && window.game.modSpawnBoss('kraken')">🐙 ABYSSAL KRAKEN</button>
+            <button class="menu-opt-btn" style="border-color:#10b981;" onclick="window.game && window.game.modSpawnBoss('dutchman')">👻 FLYING DUTCHMAN</button>
+            <button class="menu-opt-btn" style="border-color:#ef4444;" onclick="window.game && window.game.modSpawnBoss('megalodon')">🦈 MEGALODON</button>
+            <button class="menu-opt-btn" style="border-color:#06b6d4;" onclick="window.game && window.game.modSpawnBoss('leviathan')">🐉 SEA SERPENT</button>
+            <button class="menu-opt-btn" style="border-color:#f97316;" onclick="window.game && window.game.modSpawnBoss('karkinos')">🦀 KARKINOS CRAB TITAN</button>
+            <button class="menu-opt-btn" style="border-color:#38bdf8;" onclick="window.game && window.game.modSpawnBoss('charybdis')">🌪️ CHARYBDIS VORTEX</button>
+            <button class="menu-opt-btn" style="border-color:#eab308; grid-column: span 2;" onclick="window.game && window.game.modSpawnBoss('armada_flagship')">👑 EL DORADO SOLAR DREADNOUGHT</button>
           </div>
         </div>
 
         <div class="menu-section">
           <div class="menu-section-title">🪙 SANDBOX TREASURY &amp; SHIP TIER UNLOCKS</div>
           <div class="menu-btn-grid">
-            <button class="menu-opt-btn" style="border-color:#fde047;" onclick="window.game && window.game.modGrantGold(2500)">🪙 GRANT +2,500 GOLD</button>
-            <button class="menu-opt-btn" style="border-color:#34d399;" onclick="window.game && window.game.modUnlockAllShips()">🚢 UNLOCK MAN-O'-WAR (LV.6)</button>
-            <button class="menu-opt-btn" onclick="window.game && window.game.triggerRandomMaritimeEvent('BLACK_ARMADA'); window.game.toggleModStudioModal(false)">🏴‍☠️ SPAWN PIRATE ARMADA</button>
+            <button class="menu-opt-btn" style="border-color:#fde047;" onclick="window.game && window.game.modGrantGold(5000)">🪙 GRANT +5,000 GOLD</button>
+            <button class="menu-opt-btn" style="border-color:#34d399;" onclick="window.game && window.game.modUnlockAllShips()">🚢 UNLOCK TIER 10 ARK (20 SLOTS)</button>
+            <button class="menu-opt-btn" onclick="window.game && window.game.rerollRarityMarket(true); window.game.toggleModStudioModal(false); window.game.toggleLoadoutModal(true);">🟡 ROLL LEGENDARY MARKET</button>
             <button class="menu-opt-btn" onclick="window.game && window.game.modExportSnapshot()">📦 EXPORT JSON MODPACK</button>
           </div>
         </div>
@@ -259,7 +329,7 @@
       </div>
     </div>
 
-    <!-- Wharf Cargo Unloading Decision Modal (Sailing Equivalent of DixieDash Dropoff Modal) -->
+    <!-- Wharf Cargo Unloading Decision Modal -->
     <div id="dropoff-modal" class="game-modal" style="display: none;">
       <div class="modal-content-box">
         <div style="font-size: 38px; margin-bottom: 6px;">⚓📦</div>
@@ -298,7 +368,7 @@
       </div>
     </div>
 
-    <!-- Mobile On-Screen Touch Helm & Broadside Controls -->
+    <!-- Mobile On-Screen Touch Helm & Broadside Controls (Inset away from OS Back-Swipe Edges!) -->
     <div id="touch-controls">
       <div class="touch-cluster-left">
         <div id="touch-wheel-container" class="steering-wheel-wrapper">
@@ -312,7 +382,10 @@
       </div>
 
       <div class="touch-cluster-right">
-        <button id="touch-fire" class="touch-btn fire-btn">💣 FIRE BROADSIDES [F]</button>
+        <div style="display: flex; gap: 6px; width: 100%;">
+          <button id="touch-barrel" class="touch-btn barrel-btn" style="flex:1;" onclick="window.game && window.game.dropGreekFireBarrel()">🛢️ KEG [E]</button>
+          <button id="touch-fire" class="touch-btn fire-btn" style="flex:2;">💣 FIRE [F]</button>
+        </div>
         <button id="touch-drift" class="touch-btn drift-btn">⚓ ANCHOR DRIFT [SPACE]</button>
         <div class="touch-pedals-cluster">
           <button id="touch-brake" class="touch-btn brake-pedal">🛑 REEF<br>SAILS</button>
@@ -324,20 +397,31 @@
     <!-- Title Screen Modal -->
     <div id="title-modal" class="game-modal">
       <div class="modal-content-box">
-        <div style="font-size: 42px; margin-bottom: 6px;">⛵🏴‍☠️🐙</div>
+        <div style="font-size: 38px; margin-bottom: 4px;">⛵🏴‍☠️🐙👑</div>
         <h1 class="modal-title">CORSAIRDASH: SOVEREIGN SEAS</h1>
         <p class="modal-subtitle">
-          Command a merchant courier or heavily-armed privateer across 12 island ports! Haul high-stakes cargo charters, customize your ship's modular loadout slots across <strong>6 Ship Tiers</strong> (from a nimble <em>Coastal Sloop</em> up to a 12-slot <em>First-Rate Man-o'-War</em>), sing sea shanties, and battle or outrun swarming pirates and Legendary Sea Monster Bosses for the ultimate <strong>High Score</strong>!
+          Haul island cargo charters across a perilous archipelago, customize your vessel across <strong>10 Ship Tiers</strong> (up to the 20-slot <em>Celestial Sovereign Ark</em>), roll <strong>Rare &amp; Legendary Loadout Modules</strong> with special abilities, and conquer all <strong>7 Legendary Sea Bosses</strong> in an endless roguelike high-score voyage!
         </p>
 
+        <!-- High Score & Achievements Quick Bar on Title Menu -->
+        <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center; justify-content: space-between; background: #1e293b; border: 1px solid #eab308; border-radius: 10px; padding: 8px 12px;">
+          <div style="text-align: left;">
+            <div style="font-family: 'Press Start 2P', monospace; font-size: 8px; color: #fde047;" id="title-highscore-label">👑 HIGH SCORE: 0</div>
+            <div style="font-size: 11.5px; color: #cbd5e1; margin-top: 2px;" id="title-achievements-summary">🎖️ Achievements &amp; 7-Boss Gauntlet Hall of Fame</div>
+          </div>
+          <button class="menu-toggle-btn" style="padding: 8px 12px; font-size: 8px; background: linear-gradient(180deg, #d97706, #92400e); color: #fff;" onclick="window.openAchievementsModal()">
+            🏆 ACHIEVEMENTS &amp; HI-SCORES
+          </button>
+        </div>
+
         <!-- Select Difficulty Mode on Title Screen -->
-        <div style="text-align: left; font-family: 'Press Start 2P', monospace; font-size: 8.5px; color: #38bdf8; margin-bottom: 6px;">
-          ⚔️ SELECT DIFFICULTY (GOVERN SAILING PHYSICS &amp; PIRATE SWARM ESCALATION):
+        <div style="text-align: left; font-family: 'Press Start 2P', monospace; font-size: 8px; color: #38bdf8; margin-bottom: 6px;">
+          ⚔️ SELECT DIFFICULTY (SAILING PHYSICS &amp; PIRATE SWARM ESCALATION):
         </div>
         <div class="difficulty-grid">
           <button class="diff-card-btn" data-diff-btn="easy" onclick="window.selectTitleDifficulty('easy')">
             <div class="diff-card-title">🟢 MERCHANT BREEZE</div>
-            <div class="diff-card-desc">Forgiving wind physics &amp; slow pirate density growth (5 ➔ 14). Ideal for pure Cargo Hold runners! (1.0x Score)</div>
+            <div class="diff-card-desc">Forgiving wind physics &amp; slow pirate density growth (5 ➔ 14). Ideal for Cargo Smugglers! (1.0x Score)</div>
           </button>
           <button class="diff-card-btn active" data-diff-btn="medium" onclick="window.selectTitleDifficulty('medium')">
             <div class="diff-card-title">🟡 PRIVATEER</div>
@@ -349,19 +433,24 @@
           </button>
         </div>
 
-        <div style="background: #1e293b; border: 1px dashed #eab308; border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 12px; text-align: left; line-height: 1.55;">
-          <div style="color: #fde047; font-weight: bold; margin-bottom: 4px;">⚓ CAPTAIN'S CONTROLS &amp; LOADOUT STRATEGY:</div>
-          <div>⛵ <strong>W / S (Up / Down)</strong>: Hoist Sails / Reef Sails &amp; Reverse</div>
-          <div>🧭 <strong>A / D (Left / Right)</strong>: Steer Rudder • <strong>Spacebar</strong>: Anchor-Drift Broadside Turn</div>
-          <div>💣 <strong>F / Left-Click / Enter</strong>: Fire Port &amp; Starboard Broadsides • <strong>E</strong>: Drop Greek Fire Barrel</div>
-          <div>⚓ <strong>L or B</strong>: Open <strong>Shipyard &amp; Loadout Slots</strong> (6 Ship Tiers, 8 Modules, Hull Repair)</div>
-          <div>🪗 <strong>R</strong>: Sing <strong>4 Multi-Voice Sea Shanties</strong> • <strong>H</strong>: Brass Foghorn</div>
-          <div style="margin-top: 5px; color: #a7f3d0;">
-            💡 <strong>COST-TO-BENEFIT LOADOUTS:</strong> Stack <em>Expanded Cargo Holds</em> + <em>Silk Sails</em> with <strong>0 gun modules</strong> for a <strong>+12% Speed &amp; +25% Smuggler Payout Overdrive</strong> (you must cleverly outrun pirates &amp; Bosses!), OR slot <em>Broadside Cannons</em> + <em>Swivel Culverins</em> to slay the <strong>Kraken, Flying Dutchman, Megalodon &amp; Leviathan</strong> for massive 1,000g–1,800g bounties!
+        <!-- Opt-In Sandbox Cheat / Boss Spawner Menu Toggle (OFF by default!) -->
+        <div style="display: flex; align-items: center; justify-content: space-between; background: #0f172a; border: 1px dashed #64748b; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; text-align: left;">
+          <div>
+            <div style="font-family: 'Press Start 2P', monospace; font-size: 7.5px; color: #e879f9;">🛠️ SANDBOX CHEAT &amp; BOSS SPAWNER MENU</div>
+            <div style="font-size: 11px; color: #94a3b8;">Keep OFF for legitimate High Score &amp; Roguelike runs, or toggle ON to show the Cheat/Spawner button in HUD.</div>
           </div>
+          <button id="title-cheat-toggle-btn" class="menu-opt-btn" style="min-width: 110px; border-color: #475569; color: #94a3b8;" onclick="window.toggleCheatMenuOption()">
+            🔒 CHEATS: OFF
+          </button>
         </div>
 
-        <button class="btn-arcade" onclick="startGame()">⚓ SET SAIL FOR HIGH SCORE (INSERT DOUBLOON)</button>
+        <div style="background: #1e293b; border: 1px dashed #eab308; border-radius: 8px; padding: 9px; margin-bottom: 10px; font-size: 11.5px; text-align: left; line-height: 1.5;">
+          <div style="color: #fde047; font-weight: bold; margin-bottom: 3px;">⚓ ROGUELIKE LOADOUTS, RARITY &amp; 7-BOSS GAUNTLET:</div>
+          <div>🚢 <strong>10 Ship Tiers &amp; Rarity Market [L]</strong>: Buy Basic modules anytime, or roll <strong>Uncommon, Rare, Epic &amp; Legendary</strong> modules with multiplied stats and unique passive abilities!</div>
+          <div>💀 <strong>7 Boss Monsters &amp; Endless Cycles</strong>: Slay all 7 Bosses (<em>Kraken, Dutchman, Megalodon, Leviathan, Karkinos, Charybdis &amp; El Dorado</em>) to win, then ascend into <strong>Cycle II+</strong> where bosses recycle with mutator buffs and pirate swarms intensify!</div>
+        </div>
+
+        <button class="btn-arcade" onclick="startGame()">⚓ SET SAIL FOR HIGH SCORE (START VOYAGE)</button>
       </div>
     </div>
 
@@ -376,6 +465,8 @@
   <script src="game.js"></script>
   <script>
     window.selectedStartDiff = 'medium';
+    window.cheatsEnabledAtStart = false;
+
     window.selectTitleDifficulty = function(diffId) {
       window.selectedStartDiff = diffId;
       document.querySelectorAll('[data-diff-btn]').forEach(btn => {
@@ -385,13 +476,84 @@
       if (window.game) window.game.setDifficulty(diffId);
     };
 
-    function startGame() {
-      document.getElementById('title-modal').style.display = 'none';
+    window.toggleCheatMenuOption = function() {
+      window.cheatsEnabledAtStart = !window.cheatsEnabledAtStart;
+      const btn = document.getElementById('title-cheat-toggle-btn');
+      if (btn) {
+        if (window.cheatsEnabledAtStart) {
+          btn.innerText = '🔓 CHEATS: ON';
+          btn.style.borderColor = '#e879f9';
+          btn.style.color = '#f3e8ff';
+          btn.style.background = '#581c87';
+        } else {
+          btn.innerText = '🔒 CHEATS: OFF';
+          btn.style.borderColor = '#475569';
+          btn.style.color = '#94a3b8';
+          btn.style.background = '#0f172a';
+        }
+      }
+      const hudModBtn = document.getElementById('hud-mod-btn');
+      if (hudModBtn) {
+        hudModBtn.style.display = window.cheatsEnabledAtStart ? 'inline-flex' : 'none';
+      }
+    };
+
+    window.openAchievementsModal = function() {
       if (!window.game) {
-        window.audioManager.init();
-        window.audioManager.resume();
         window.game = new GameEngine();
         window.game.setDifficulty(window.selectedStartDiff || 'medium');
+      }
+      window.game.toggleAchievementsModal(true);
+    };
+
+    window.closeAchievementsModal = function() {
+      if (window.game) {
+        window.game.toggleAchievementsModal(false);
+      } else {
+        const m = document.getElementById('achievements-modal');
+        if (m) m.style.display = 'none';
+      }
+    };
+
+    window.toggleFullscreenMode = function() {
+      const docEl = document.documentElement;
+      if (!document.fullscreenElement && docEl.requestFullscreen) {
+        docEl.requestFullscreen().catch(() => {});
+      } else if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+    };
+
+    // Populate Title Screen High Score summary on load
+    window.addEventListener('DOMContentLoaded', () => {
+      try {
+        const hi = parseInt(localStorage.getItem('corsairdash_highscore') || '0', 10) || 0;
+        const unlocked = JSON.parse(localStorage.getItem('corsairdash_achievements') || '[]');
+        const hiLabel = document.getElementById('title-highscore-label');
+        const achLabel = document.getElementById('title-achievements-summary');
+        if (hiLabel) hiLabel.innerText = `👑 ALL-TIME HIGH SCORE: ${hi.toLocaleString()}`;
+        if (achLabel && window.CORSAIR_DATA && window.CORSAIR_DATA.achievementsCatalog) {
+          achLabel.innerText = `🎖️ ${unlocked.length} / ${window.CORSAIR_DATA.achievementsCatalog.length} Maritime Achievements Unlocked`;
+        }
+      } catch (e) {}
+    });
+
+    function startGame() {
+      document.getElementById('title-modal').style.display = 'none';
+      const hudModBtn = document.getElementById('hud-mod-btn');
+      if (hudModBtn) {
+        hudModBtn.style.display = window.cheatsEnabledAtStart ? 'inline-flex' : 'none';
+      }
+      if (window.audioManager) {
+        window.audioManager.init();
+        window.audioManager.resume();
+      }
+      if (!window.game) {
+        window.game = new GameEngine();
+      }
+      window.game.cheatsEnabled = Boolean(window.cheatsEnabledAtStart);
+      window.game.setDifficulty(window.selectedStartDiff || 'medium');
+      if (!window.game._started) {
         window.game.start();
       }
     }

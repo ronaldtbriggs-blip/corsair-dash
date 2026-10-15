@@ -15,15 +15,16 @@ class PirateAndTradeManager {
     this.tradeSpawnTimer = 0;
   }
 
-  getActivePirateCap(difficultyProfile, voyageSeconds, modMultiplier = 1.0) {
-    const base = difficultyProfile.initialMaxPirates || 8;
-    const rate = difficultyProfile.escalationRatePerMin || 3.0;
-    const cap = difficultyProfile.absoluteMaxPirates || 28;
+  getActivePirateCap(difficultyProfile, voyageSeconds, modMultiplier = 1.0, bossCycle = 1, bossesSlain = 0) {
+    const cycleBonus = Math.max(0, bossCycle - 1);
+    const base = (difficultyProfile.initialMaxPirates || 8) + cycleBonus * 5 + Math.floor(bossesSlain * 0.6);
+    const rate = (difficultyProfile.escalationRatePerMin || 3.0) * (1 + cycleBonus * 0.32);
+    const cap = (difficultyProfile.absoluteMaxPirates || 28) + cycleBonus * 10 + Math.min(14, bossesSlain);
     const escalated = base + (voyageSeconds / 60) * rate;
     return Math.round(Math.min(cap, escalated) * modMultiplier);
   }
 
-  spawnPirate(playerX, playerY, difficultyProfile, voyageSeconds, forceNearPlayer = false) {
+  spawnPirate(playerX, playerY, difficultyProfile, voyageSeconds, forceNearPlayer = false, bossCycle = 1) {
     // Spawn on a ring 850 to 2,100 units around the player (avoiding island interiors)
     let sx = playerX;
     let sy = playerY;
@@ -51,10 +52,14 @@ class PirateAndTradeManager {
 
     if (!valid) return null;
 
-    // Select Pirate Tier based on voyage progression & difficulty
-    const roll = Math.random() + Math.min(0.25, voyageSeconds / 900);
+    const cycleBonus = Math.max(0, (bossCycle || 1) - 1);
+    const cycleStatMult = 1.0 + cycleBonus * 0.30;
+    const cycleBountyMult = 1.0 + cycleBonus * 0.45;
+
+    // Select Pirate Tier based on voyage progression, difficulty & Boss Cycle
+    const roll = Math.random() + Math.min(0.32, voyageSeconds / 800) + cycleBonus * 0.12;
     let pType = 'cutter';
-    let name = 'Blackwater Cutter';
+    let name = cycleBonus > 0 ? `Ascended Cutter [C${bossCycle}]` : 'Blackwater Cutter';
     let hp = 65;
     let speed = 64;
     let damage = 11;
@@ -66,9 +71,9 @@ class PirateAndTradeManager {
     let hullColor = '#291d16';
     let sailColor = '#1e293b';
 
-    if (roll > 0.88) {
+    if (roll > 0.85) {
       pType = 'dreadnought';
-      name = 'Crimson Skull Galleon';
+      name = cycleBonus > 0 ? `Ascended Skull Galleon [C${bossCycle}]` : 'Crimson Skull Galleon';
       hp = 240;
       speed = 55;
       damage = 22;
@@ -79,9 +84,9 @@ class PirateAndTradeManager {
       masts = 3;
       hullColor = '#1c1917';
       sailColor = '#7f1d1d';
-    } else if (roll > 0.45) {
+    } else if (roll > 0.42) {
       pType = 'brigantine';
-      name = 'Corsair Raider Brig';
+      name = cycleBonus > 0 ? `Ascended Raider Brig [C${bossCycle}]` : 'Corsair Raider Brig';
       hp = 130;
       speed = 60;
       damage = 15;
@@ -94,8 +99,9 @@ class PirateAndTradeManager {
       sailColor = '#111827';
     }
 
-    const speedMult = difficultyProfile.pirateSpeedMult || 1.0;
-    const dmgMult = difficultyProfile.pirateDamageMult || 1.0;
+    const speedMult = (difficultyProfile.pirateSpeedMult || 1.0) * Math.min(1.35, 1 + cycleBonus * 0.06);
+    const dmgMult = (difficultyProfile.pirateDamageMult || 1.0) * cycleStatMult;
+    const scaledHp = Math.round(hp * cycleStatMult);
 
     const pirate = {
       id: 'pir_' + Math.random().toString(36).slice(2, 9),
@@ -106,20 +112,25 @@ class PirateAndTradeManager {
       angle: Math.atan2(playerY - sy, playerX - sx),
       speed: speed * speedMult * 0.7,
       maxSpeed: speed * speedMult,
-      hp,
-      maxHp: hp,
+      hp: scaledHp,
+      maxHp: scaledHp,
       damage: Math.round(damage * dmgMult),
-      bountyGold,
-      bountyScore,
+      bountyGold: Math.round(bountyGold * cycleBountyMult),
+      bountyScore: Math.round(bountyScore * cycleBountyMult),
       length,
       width,
       masts,
       hullColor,
       sailColor,
       reloadTimer: 1.0 + Math.random() * 1.5,
-      reloadDuration: difficultyProfile.pirateReloadSec || 2.5,
+      reloadDuration: Math.max(1.1, (difficultyProfile.pirateReloadSec || 2.5) * Math.pow(0.92, cycleBonus)),
       aiOffsetSign: Math.random() > 0.5 ? 1 : -1,
-      hitFlash: 0
+      hitFlash: 0,
+      slowTimer: 0,
+      slowAmount: 0,
+      burnTimer: 0,
+      burnDps: 0,
+      ramCooldown: 0
     };
 
     this.pirates.push(pirate);
@@ -199,18 +210,26 @@ class PirateAndTradeManager {
   }
 
   update(dt, player, difficultyProfile, voyageSeconds, gameEngine) {
+    const bossCycle = gameEngine.bossCycle || 1;
+    const bossesSlain = (gameEngine.stats && gameEngine.stats.bossesSlain) || 0;
     const activeCap = this.getActivePirateCap(
       difficultyProfile,
       voyageSeconds,
-      gameEngine.modPirateDensityMult || 1.0
+      gameEngine.modPirateDensityMult || 1.0,
+      bossCycle,
+      bossesSlain
     );
 
-    // 1. Spawn new pirates up to the difficulty-escalated cap
+    // 1. Spawn new pirates up to the difficulty & cycle-escalated cap
     this.pirateSpawnTimer += dt;
-    const spawnInterval = (difficultyProfile.pirateSpawnInterval || 2.5) / (gameEngine.modPirateDensityMult || 1.0);
+    const cycleSpawnBoost = 1.0 + Math.max(0, bossCycle - 1) * 0.35 + bossesSlain * 0.05;
+    const spawnInterval = Math.max(
+      0.45,
+      (difficultyProfile.pirateSpawnInterval || 2.5) / ((gameEngine.modPirateDensityMult || 1.0) * cycleSpawnBoost)
+    );
     if (this.pirateSpawnTimer >= spawnInterval && this.pirates.length < activeCap) {
       this.pirateSpawnTimer = 0;
-      this.spawnPirate(player.x, player.y, difficultyProfile, voyageSeconds);
+      this.spawnPirate(player.x, player.y, difficultyProfile, voyageSeconds, false, bossCycle);
     }
 
     // 2. Spawn ambient Trade & Royal Navy vessels
@@ -220,13 +239,18 @@ class PirateAndTradeManager {
       this.spawnTradeShip(player.x, player.y);
     }
 
-    // 3. Despawn ships that drifted > 3,400 units from player so action stays concentrated around player!
+    // 3. Despawn ships that drifted > 3,400 units from player
     this.pirates = this.pirates.filter(p => Math.hypot(p.x - player.x, p.y - player.y) < 3300 && p.hp > 0);
     this.tradeShips = this.tradeShips.filter(t => Math.hypot(t.x - player.x, t.y - player.y) < 3600);
 
     // 4. Update Pirate AI & Cannon Volleys
-    for (const p of this.pirates) {
+    for (let i = this.pirates.length - 1; i >= 0; i--) {
+      const p = this.pirates[i];
       this.updatePirateAI(p, dt, player, gameEngine);
+      if (p.hp <= 0) {
+        gameEngine.onPirateSunk(p, true);
+        this.pirates.splice(i, 1);
+      }
     }
 
     // 5. Update Merchant & Royal Navy AI
@@ -244,19 +268,19 @@ class PirateAndTradeManager {
       // Check hit against Player Ship
       const distToPlayer = Math.hypot(proj.x - player.x, proj.y - player.y);
       if (distToPlayer < (player.width * 0.85)) {
-        gameEngine.applyDamageToPlayer(proj.damage, 'Pirate Cannonball');
+        gameEngine.applyDamageToPlayer(proj.damage, 'Pirate Cannonball', proj.sourcePirate);
         this.enemyProjectiles.splice(i, 1);
         continue;
       }
 
       if (proj.life <= 0) {
-        // Splash into water
         gameEngine.spawnWaterSplash(proj.x, proj.y, 5);
         this.enemyProjectiles.splice(i, 1);
       }
     }
 
-    // 7. Update Floating Salvage Plunder Chests
+    // 7. Update Floating Salvage Plunder Chests (Supports Grappling Harpoon Winch Magnet!)
+    const magnetRange = 52 + (player.magnetRadius || 0);
     for (let i = this.salvageChests.length - 1; i >= 0; i--) {
       const chest = this.salvageChests[i];
       chest.life -= dt;
@@ -266,7 +290,14 @@ class PirateAndTradeManager {
       }
 
       const d = Math.hypot(chest.x - player.x, chest.y - player.y);
-      if (d < 52) {
+      if (d < magnetRange && d >= 48) {
+        const pullAngle = Math.atan2(player.y - chest.y, player.x - chest.x);
+        const pullSpeed = 260 + (player.magnetRadius || 0) * 0.65;
+        chest.x += Math.cos(pullAngle) * pullSpeed * dt;
+        chest.y += Math.sin(pullAngle) * pullSpeed * dt;
+      }
+
+      if (Math.hypot(chest.x - player.x, chest.y - player.y) < 52) {
         gameEngine.collectSalvageChest(chest);
         this.salvageChests.splice(i, 1);
       }
@@ -275,11 +306,38 @@ class PirateAndTradeManager {
 
   updatePirateAI(p, dt, player, gameEngine) {
     if (p.hitFlash > 0) p.hitFlash = Math.max(0, p.hitFlash - dt * 4);
+    if (p.ramCooldown > 0) p.ramCooldown = Math.max(0, p.ramCooldown - dt);
+
+    // Burn DoT from Hellfire Cannon / Wildfire Mortar
+    if (p.burnTimer > 0) {
+      p.burnTimer = Math.max(0, p.burnTimer - dt);
+      p.hp -= (p.burnDps || 15) * dt;
+    }
+
+    // Slow debuff from Chain-Shot Dismasting Rig
+    let slowMult = 1.0;
+    if (p.slowTimer > 0) {
+      p.slowTimer = Math.max(0, p.slowTimer - dt);
+      slowMult = Math.max(0.30, 1.0 - (p.slowAmount || 0.30));
+    }
 
     const dx = player.x - p.x;
     const dy = player.y - p.y;
     const distToPlayer = Math.hypot(dx, dy);
     let desiredAngle = Math.atan2(dy, dx);
+
+    // Ramming Check (Copper/Orichalcum Keel, Steam Boiler, or Krakenbone Dreadnought)
+    const contactDist = (player.width + p.width) * 0.72;
+    if (distToPlayer < contactDist && p.ramCooldown <= 0) {
+      p.ramCooldown = 1.0;
+      const ramDmg = (player.ramDamage || 0) + (player.boneRam ? 95 : 0);
+      if (ramDmg > 0) {
+        p.hp -= ramDmg;
+        p.hitFlash = 1.0;
+        if (window.audioManager) window.audioManager.playHitWood();
+        gameEngine.spawnMuzzleSmoke(p.x, p.y);
+      }
+    }
 
     // If within broadside range (160-340 units), angle slightly to orbit and fire broadsides!
     if (distToPlayer < 290 && distToPlayer > 110) {
@@ -299,10 +357,10 @@ class PirateAndTradeManager {
     let diff = desiredAngle - p.angle;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    p.angle += diff * Math.min(1.0, dt * 2.4);
+    p.angle += diff * Math.min(1.0, dt * 2.4 * slowMult);
 
     // Move pirate vessel
-    p.speed = Math.min(p.maxSpeed, p.speed + 35 * dt);
+    p.speed = Math.min(p.maxSpeed * slowMult, p.speed + 35 * dt);
     p.x += Math.cos(p.angle) * p.speed * dt * 2.3;
     p.y += Math.sin(p.angle) * p.speed * dt * 2.3;
 
@@ -324,7 +382,8 @@ class PirateAndTradeManager {
         vy: Math.sin(shotAngle) * 370,
         damage: p.damage,
         life: 1.45,
-        color: '#f97316'
+        color: '#f97316',
+        sourcePirate: p
       });
 
       gameEngine.spawnMuzzleSmoke(p.x + Math.cos(shotAngle) * 12, p.y + Math.sin(shotAngle) * 12);
